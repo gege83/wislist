@@ -1,6 +1,6 @@
 # Build Gift Ideas And Claims
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 06
 
@@ -15,3 +15,9 @@ Implement hidden gift ideas and one-claimant claims for wishes and gift ideas.
 - Claims are created with a transaction so concurrent claims resolve to one winner.
 
 ## Comments
+
+- Implemented `createGiftIdea`, `getGiftIdeasForRecipient`, and `deleteGiftIdea` in `src/lib/giftIdeas.ts`.
+- Implemented `claimItem`, `unclaimItem`, `getClaimsForFamily`, and `getMyClaims` in `src/lib/claims.ts`.
+- Used Firestore transactions with deterministic claim IDs (`wish_{wishId}` and `giftIdea_{giftIdeaId}`) to ensure race-safe single-claimant enforcement.
+- Maintained surprise privacy in rules and SDK methods so recipients cannot access gift ideas or claims targeting themselves.
+- Added tests in `tests/claims/claims.test.ts` verifying gift idea privacy, claiming, unclaiming, and transaction conflict handling.

@@ -10,9 +10,141 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function isFamilyMember(familyId) {
+      let memberPath = /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
+      return signedIn() &&
+        exists(memberPath) &&
+        get(memberPath).data.get('removedAt', null) == null;
+    }
+
+    function isFamilyAdmin(familyId) {
+      let memberPath = /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
+      return isFamilyMember(familyId) &&
+        get(memberPath).data.get('admin', false) == true;
+    }
+
+    function isGuardian(familyId, memberId) {
+      let childPath = /databases/$(database)/documents/families/$(familyId)/members/$(memberId);
+      return signedIn() &&
+        exists(childPath) &&
+        request.auth.uid in get(childPath).data.get('guardianIds', []);
+    }
+
+    function isMemberOfAnyFamily(familyIds) {
+      return (familyIds.size() > 0 && isFamilyMember(familyIds[0])) ||
+             (familyIds.size() > 1 && isFamilyMember(familyIds[1])) ||
+             (familyIds.size() > 2 && isFamilyMember(familyIds[2])) ||
+             (familyIds.size() > 3 && isFamilyMember(familyIds[3]));
+    }
+
     match /users/{userId} {
       allow read, create, update: if isSelf(userId);
       allow delete: if false;
+    }
+
+    match /families/{familyId} {
+      allow read: if isFamilyMember(familyId) || (signedIn() && resource.data.createdBy == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isFamilyAdmin(familyId);
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow read: if isFamilyMember(familyId) || (signedIn() && memberId == request.auth.uid);
+        allow create: if signedIn() && (
+          (memberId == request.auth.uid && request.resource.data.get('admin', false) == true) ||
+          (memberId == request.auth.uid && request.resource.data.get('kind', '') == 'adult') ||
+          (isFamilyMember(familyId) && request.resource.data.get('kind', '') == 'managedChild')
+        );
+        allow update: if isFamilyAdmin(familyId) ||
+          (signedIn() && memberId == request.auth.uid) ||
+          (isFamilyMember(familyId) && resource.data.get('kind', '') == 'managedChild' && isGuardian(familyId, memberId));
+        allow delete: if false;
+      }
+    }
+
+    match /invites/{inviteId} {
+      allow read: if signedIn() && (
+        isFamilyAdmin(resource.data.familyId) ||
+        (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower())
+      );
+      allow create: if signedIn() && isFamilyAdmin(request.resource.data.familyId);
+      allow update: if signedIn() && (
+        isFamilyAdmin(resource.data.familyId) ||
+        (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower())
+      );
+      allow delete: if false;
+    }
+
+    match /wishes/{wishId} {
+      allow read: if signedIn() && (
+        resource == null ||
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        ('familyId' in resource.data && isFamilyMember(resource.data.familyId)) ||
+        ('visibleFamilyIds' in resource.data && isMemberOfAnyFamily(resource.data.visibleFamilyIds))
+      );
+      allow create: if signedIn() && (
+        request.resource.data.creatorId == request.auth.uid && (
+          request.resource.data.recipientId == request.auth.uid ||
+          ('familyId' in request.resource.data && isGuardian(request.resource.data.familyId, request.resource.data.recipientId)) ||
+          ('visibleFamilyIds' in request.resource.data && request.resource.data.visibleFamilyIds.size() > 0 && isGuardian(request.resource.data.visibleFamilyIds[0], request.resource.data.recipientId))
+        )
+      );
+      allow update: if signedIn() && (
+        resource.data.creatorId == request.auth.uid ||
+        resource.data.recipientId == request.auth.uid ||
+        ('familyId' in resource.data && isGuardian(resource.data.familyId, resource.data.recipientId)) ||
+        ('visibleFamilyIds' in resource.data && resource.data.visibleFamilyIds.size() > 0 && isGuardian(resource.data.visibleFamilyIds[0], resource.data.recipientId))
+      );
+      allow delete: if false;
+    }
+
+    match /giftIdeas/{giftIdeaId} {
+      allow read: if signedIn() && (
+        resource == null || (
+          request.auth.uid != resource.data.recipientId && (
+            resource.data.creatorId == request.auth.uid ||
+            ('familyId' in resource.data && (
+              isFamilyMember(resource.data.familyId) ||
+              isGuardian(resource.data.familyId, resource.data.recipientId)
+            )) ||
+            !('familyId' in resource.data)
+          )
+        )
+      );
+      allow create: if signedIn() &&
+        request.auth.uid != request.resource.data.recipientId &&
+        request.resource.data.creatorId == request.auth.uid &&
+        (!('familyId' in request.resource.data) || isFamilyMember(request.resource.data.familyId));
+      allow update, delete: if signedIn() && resource.data.creatorId == request.auth.uid;
+    }
+
+    match /claims/{claimId} {
+      allow get: if signedIn() && (
+        resource == null || (
+          request.auth.uid != resource.data.recipientId && (
+            resource.data.claimantId == request.auth.uid ||
+            ('familyId' in resource.data && isFamilyMember(resource.data.familyId)) ||
+            !('familyId' in resource.data)
+          )
+        )
+      );
+      allow list: if signedIn() && (
+        resource.data.claimantId == request.auth.uid ||
+        (request.auth.uid != resource.data.recipientId && ('familyId' in resource.data && isFamilyMember(resource.data.familyId)))
+      );
+      allow create: if signedIn() &&
+        'recipientId' in request.resource.data &&
+        'claimantId' in request.resource.data &&
+        'targetType' in request.resource.data &&
+        'targetId' in request.resource.data &&
+        request.auth.uid != request.resource.data.recipientId &&
+        request.resource.data.claimantId == request.auth.uid &&
+        request.resource.data.targetType in ['wish', 'giftIdea'] &&
+        claimId == (request.resource.data.targetType + '_' + request.resource.data.targetId) &&
+        (!('familyId' in request.resource.data) || isFamilyMember(request.resource.data.familyId));
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.claimantId == request.auth.uid;
     }
 
     match /{document=**} {

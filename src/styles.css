@@ -347,3 +347,409 @@ code {
     display: none;
   }
 }
+
+/* Authentication Screen */
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: radial-gradient(circle at top, #fdfbf7 0%, #ede8de 100%);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 36px 32px;
+  background: #ffffff;
+  border: 1px solid #dfd8c9;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -5px rgba(24, 35, 31, 0.05),
+              0 8px 10px -6px rgba(24, 35, 31, 0.05);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  background: #f7c948;
+  color: #18231f;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.auth-logo svg {
+  width: 28px;
+  height: 28px;
+}
+
+.auth-header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle {
+  color: #637169;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.auth-alert {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  font-size: 0.88rem;
+}
+
+.auth-alert.error {
+  color: #922b21;
+  background: #fde8e7;
+  border: 1px solid #f9c7c4;
+}
+
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  background: #ffffff;
+  border: 1px solid #d4cdc0;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #2c3b34;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.google-btn:hover:not(:disabled) {
+  background: #fcfbfa;
+  border-color: #beb5a5;
+}
+
+.google-btn:disabled,
+.auth-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 20px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid #e2ddd4;
+}
+
+.auth-divider span {
+  padding: 0 12px;
+  color: #8c9b93;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+}
+
+.form-group {
+  display: grid;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2c3b34;
+}
+
+.form-group input {
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid #d4cdc0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #18231f;
+  background: #fffdfa;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-group input:focus {
+  border-color: #315948;
+  box-shadow: 0 0 0 3px rgba(49, 89, 72, 0.15);
+}
+
+.auth-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 6px;
+  background: #315948;
+  color: #fffaf0;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: background-color 0.15s;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  background: #254638;
+}
+
+.auth-toggle {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 0.9rem;
+  color: #637169;
+}
+
+.auth-toggle p {
+  margin: 0;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #315948;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: #1b382c;
+}
+
+/* User profile section in sidebar */
+.user-profile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #2c3b34;
+}
+
+.user-profile-info {
+  display: grid;
+  min-width: 0;
+}
+
+.user-profile-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-profile-email {
+  font-size: 0.78rem;
+  color: #9cb1a6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sign-out-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #dfe8e2;
+  border: 1px solid #3c4f46;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.sign-out-btn:hover {
+  background: #2c3b34;
+  color: #ffffff;
+}
+
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: #637169;
+  font-weight: 600;
+}
+
+/* My Claims Screen */
+.my-claims-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.claims-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.empty-claims-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  background: #ffffff;
+  border: 1px dashed #dfd8c9;
+  border-radius: 12px;
+}
+
+.empty-gift-icon {
+  width: 48px;
+  height: 48px;
+  color: #a8b8af;
+  margin-bottom: 16px;
+}
+
+.empty-claims-state h3 {
+  font-size: 1.25rem;
+  margin-bottom: 8px;
+}
+
+.empty-claims-state p {
+  color: #617068;
+  max-width: 400px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.claims-list {
+  display: grid;
+  gap: 14px;
+}
+
+.claim-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #dfd8c9;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.claim-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.claim-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.claim-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #ebe4d8;
+  color: #4b5850;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.deleted-warning-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fdf2e9;
+  color: #b95d10;
+  border: 1px solid #f8d7bb;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.claim-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #16201d;
+}
+
+.claim-description {
+  margin: 0;
+  color: #617068;
+  font-size: 0.92rem;
+}
+
+.claim-date {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #8c9b93;
+}
+
+.unclaim-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  min-height: 38px;
+  border: 1px solid #cddcd2;
+  border-radius: 6px;
+  background: #f3f8f5;
+  color: #275341;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.unclaim-btn:hover:not(:disabled) {
+  background: #e2ede6;
+  border-color: #a7c5b2;
+}
+
+.unclaim-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+

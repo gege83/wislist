@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Gift,
   ListChecks,
@@ -7,38 +7,322 @@ import {
   MailPlus,
   ShieldCheck,
   Users,
+  X,
+  Plus,
+  Settings,
+  Edit3,
+  Trash2,
 } from "lucide-react";
 import { firebaseApp } from "./lib/firebase";
 import { useAuth } from "./context/authContext";
 import { AuthScreen } from "./components/AuthScreen";
 import { MyClaimsScreen } from "./components/MyClaimsScreen";
+import { FamilySetupScreen } from "./components/FamilySetupScreen";
+import { WishModal } from "./components/WishModal";
+import { GiftIdeaModal } from "./components/GiftIdeaModal";
+import { FamilySettingsModal } from "./components/FamilySettingsModal";
+import {
+  getUserFamilies,
+  getFamilyMembers,
+  createInvite,
+  createManagedChildProfile,
+} from "./lib/families";
+import {
+  getActiveWishesForRecipient,
+  getWishesForFamilyMember,
+  deleteWish,
+} from "./lib/wishes";
+import { getGiftIdeasForRecipient, deleteGiftIdea } from "./lib/giftIdeas";
+import { claimItem, unclaimItem, getClaimsForFamily } from "./lib/claims";
+import { Family, FamilyMember, Wish, GiftIdea, Claim } from "./types";
 
-const familyMembers = [
-  { name: "Anna", wishes: 4, unclaimed: 3, kind: "Adult" },
-  { name: "Ben", wishes: 2, unclaimed: 1, kind: "Adult" },
-  { name: "Lili", wishes: 5, unclaimed: 4, kind: "Managed child" },
-];
+// ─── Modal helper ────────────────────────────────────────────────────────────
 
-const visibleWishes = [
-  { title: "Board game night set", claimed: false },
-  { title: "Warm reading lamp", claimed: true },
-  { title: "Sketchbook and pens", claimed: false },
-];
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal-card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X aria-hidden="true" style={{ width: 18, height: 18 }} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-const giftIdeas = [
-  { title: "Pottery class", claimed: false },
-  { title: "Museum membership", claimed: true },
-];
+// ─── App ─────────────────────────────────────────────────────────────────────
 
 export function App() {
   const { user, profile, loading, signOut } = useAuth();
   const [currentView, setCurrentView] = useState<"family" | "wishes" | "claims">("family");
   const projectId = firebaseApp.options.projectId ?? "local emulator";
 
+  // ── Family data ──────────────────────────────────────────────────────────
+  const [allUserFamilies, setAllUserFamilies] = useState<Family[]>([]);
+  const [family, setFamily] = useState<Family | null>(null);
+  const [members, setMembers] = useState<FamilyMember[]>([]);
+  const [familyLoading, setFamilyLoading] = useState(true);
+  const [familyError, setFamilyError] = useState<string | null>(null);
+
+  // ── Selected member for wish / gift-idea panel ───────────────────────────
+  const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
+  const [memberWishes, setMemberWishes] = useState<Wish[]>([]);
+  const [memberGiftIdeas, setMemberGiftIdeas] = useState<GiftIdea[]>([]);
+  const [wishPanelLoading, setWishPanelLoading] = useState(false);
+
+  // ── Claims map ───────────────────────────────────────────────────────────
+  const [claims, setClaims] = useState<Record<string, Claim>>({});
+
+  // ── My own wishes (for "My wishes" nav tab) ──────────────────────────────
+  const [myWishes, setMyWishes] = useState<Wish[]>([]);
+
+  // ── Modals ───────────────────────────────────────────────────────────────
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState(false);
+
+  const [showChildModal, setShowChildModal] = useState(false);
+  const [childName, setChildName] = useState("");
+  const [addingChild, setAddingChild] = useState(false);
+  const [childError, setChildError] = useState<string | null>(null);
+
+  const [showWishModal, setShowWishModal] = useState(false);
+  const [wishModalTarget, setWishModalTarget] = useState<{
+    recipientId: string;
+    recipientName: string;
+  } | null>(null);
+  const [editingWish, setEditingWish] = useState<Wish | null>(null);
+
+  const [showGiftIdeaModal, setShowGiftIdeaModal] = useState(false);
+  const [showFamilySettings, setShowFamilySettings] = useState(false);
+
+  // ── Wish claim / unclaim feedback ────────────────────────────────────────
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+
+  // ── Load family on mount / when profile changes ──────────────────────────
+  const loadFamily = useCallback(
+    async (targetFamilyId?: string) => {
+      if (!user) return;
+      setFamilyLoading(true);
+      setFamilyError(null);
+      try {
+        const knownId = targetFamilyId || profile?.lastSelectedFamilyId;
+        const families = await getUserFamilies(user.uid, knownId);
+        setAllUserFamilies(families);
+
+        if (families.length === 0) {
+          setFamily(null);
+          setFamilyLoading(false);
+          return;
+        }
+
+        const preferred =
+          (targetFamilyId ? families.find((f) => f.id === targetFamilyId) : undefined) ??
+          families.find((f) => f.id === profile?.lastSelectedFamilyId) ??
+          families[0];
+        setFamily(preferred);
+
+        const mems = await getFamilyMembers(preferred.id);
+        setMembers(mems);
+
+        try {
+          const claimsMap = await getClaimsForFamily(preferred.id, user.uid);
+          setClaims(claimsMap);
+        } catch (claimsErr) {
+          console.warn("Claims load non-fatal warning:", claimsErr);
+        }
+
+        // Keep or select first other member
+        const others = mems.filter((m) => m.userId !== user.uid);
+        if (others.length > 0) {
+          setSelectedMember((prev) =>
+            prev && mems.some((m) => m.id === prev.id) ? prev : others[0]
+          );
+        } else if (mems.length > 0) {
+          setSelectedMember(mems[0]);
+        }
+      } catch (err) {
+        setFamilyError(err instanceof Error ? err.message : "Failed to load family.");
+      } finally {
+        setFamilyLoading(false);
+      }
+    },
+    [user, profile]
+  );
+
+  useEffect(() => {
+    if (user) loadFamily();
+  }, [user, profile, loadFamily]);
+
+  // ── Reload member wishes & hidden gift ideas ─────────────────────────────
+  const reloadMemberWishesAndIdeas = useCallback(async () => {
+    if (!family || !selectedMember || !user) return;
+    setWishPanelLoading(true);
+    try {
+      const [wishes, ideas] = await Promise.all([
+        getWishesForFamilyMember(selectedMember.id, family.id),
+        getGiftIdeasForRecipient(selectedMember.id, family.id, user.uid),
+      ]);
+      setMemberWishes(wishes);
+      setMemberGiftIdeas(ideas);
+    } finally {
+      setWishPanelLoading(false);
+    }
+  }, [family, selectedMember, user]);
+
+  useEffect(() => {
+    reloadMemberWishesAndIdeas();
+  }, [reloadMemberWishesAndIdeas]);
+
+  // ── Reload my own wishes ─────────────────────────────────────────────────
+  const reloadMyWishes = useCallback(async () => {
+    if (!user) return;
+    const wishes = await getActiveWishesForRecipient(user.uid);
+    setMyWishes(wishes);
+  }, [user]);
+
+  useEffect(() => {
+    if (user && currentView === "wishes") {
+      reloadMyWishes();
+    }
+  }, [user, currentView, reloadMyWishes]);
+
+  // ── Derived metrics ──────────────────────────────────────────────────────
+  const totalWishes = memberWishes.length + memberGiftIdeas.length;
+  const unclaimed = [...memberWishes, ...memberGiftIdeas].filter((item) => {
+    const claimKey = memberWishes.includes(item as Wish)
+      ? `wish_${item.id}`
+      : `giftIdea_${item.id}`;
+    return !claims[claimKey];
+  }).length;
+
+  const currentUserMember = members.find((m) => m.userId === user?.uid);
+  const isAdmin = currentUserMember?.admin === true;
+  const otherMembers = members.filter((m) => m.userId !== user?.uid);
+
+  const isGuardianOfSelected =
+    selectedMember?.kind === "managedChild" &&
+    (selectedMember.guardianIds?.includes(user?.uid ?? "") || isAdmin);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !family || !inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteError(null);
+    try {
+      await createInvite(family.id, inviteEmail.trim(), user);
+      setInviteSuccess(true);
+      setInviteEmail("");
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Failed to send invite.");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleAddChild = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !family || !childName.trim()) return;
+    setAddingChild(true);
+    setChildError(null);
+    try {
+      const child = await createManagedChildProfile(family.id, childName.trim(), user);
+      setMembers((prev) => [...prev, child]);
+      setChildName("");
+      setShowChildModal(false);
+      setSelectedMember(child);
+    } catch (err) {
+      setChildError(err instanceof Error ? err.message : "Failed to add child profile.");
+    } finally {
+      setAddingChild(false);
+    }
+  };
+
+  const handleClaim = async (
+    targetType: "wish" | "giftIdea",
+    targetId: string,
+    recipientId: string
+  ) => {
+    if (!user || !family) return;
+    const compositeId = `${targetType}_${targetId}`;
+    setClaimingId(compositeId);
+    try {
+      if (claims[compositeId]) {
+        await unclaimItem(compositeId, user);
+        setClaims((prev) => {
+          const next = { ...prev };
+          delete next[compositeId];
+          return next;
+        });
+      } else {
+        const claim = await claimItem(targetType, targetId, recipientId, user, family.id);
+        setClaims((prev) => ({ ...prev, [compositeId]: claim }));
+      }
+    } catch (err) {
+      console.error("Claim error:", err);
+    } finally {
+      setClaimingId(null);
+    }
+  };
+
+  const handleDeleteWish = async (wishId: string) => {
+    if (!window.confirm("Are you sure you want to delete this wish?")) return;
+    try {
+      await deleteWish(wishId);
+      if (currentView === "wishes") {
+        await reloadMyWishes();
+      } else {
+        await reloadMemberWishesAndIdeas();
+      }
+    } catch (err) {
+      console.error("Delete wish error:", err);
+    }
+  };
+
+  const handleDeleteGiftIdea = async (ideaId: string) => {
+    if (!user) return;
+    if (!window.confirm("Are you sure you want to delete this secret gift idea?")) return;
+    try {
+      await deleteGiftIdea(ideaId, user);
+      await reloadMemberWishesAndIdeas();
+    } catch (err) {
+      console.error("Delete gift idea error:", err);
+    }
+  };
+
+  // ── Render guards ─────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="loading-container">
-        <p>Loading your wishlist...</p>
+        <p>Loading your wishlist…</p>
       </div>
     );
   }
@@ -47,18 +331,218 @@ export function App() {
     return <AuthScreen />;
   }
 
+  // If profile loaded but no family yet → setup screen
+  if (!familyLoading && family === null) {
+    return (
+      <FamilySetupScreen
+        error={familyError}
+        onFamilyReady={(readyFamilyId) => {
+          setFamilyLoading(true);
+          loadFamily(readyFamilyId);
+        }}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
+      {/* ── Invite modal ── */}
+      {showInviteModal && (
+        <Modal
+          title="Invite a family member"
+          onClose={() => {
+            setShowInviteModal(false);
+            setInviteEmail("");
+            setInviteError(null);
+            setInviteSuccess(false);
+          }}
+        >
+          {inviteSuccess ? (
+            <div className="modal-body">
+              <div className="auth-alert success" role="status">
+                Invite sent! The link expires in 2 days.
+              </div>
+              <button
+                type="button"
+                className="auth-submit-btn"
+                onClick={() => {
+                  setInviteSuccess(false);
+                  setInviteEmail("");
+                }}
+              >
+                Send another invite
+              </button>
+            </div>
+          ) : (
+            <form className="modal-body auth-form" onSubmit={handleInvite}>
+              {inviteError && (
+                <div className="auth-alert error" role="alert">{inviteError}</div>
+              )}
+              <div className="form-group">
+                <label htmlFor="invite-email-input">Email address</label>
+                <input
+                  id="invite-email-input"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  required
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                className="auth-submit-btn"
+                disabled={inviting || !inviteEmail.trim()}
+              >
+                {inviting ? "Sending…" : "Send invite"}
+              </button>
+            </form>
+          )}
+        </Modal>
+      )}
+
+      {/* ── Add child modal ── */}
+      {showChildModal && (
+        <Modal
+          title="Add a child profile"
+          onClose={() => {
+            setShowChildModal(false);
+            setChildName("");
+            setChildError(null);
+          }}
+        >
+          <form className="modal-body auth-form" onSubmit={handleAddChild}>
+            {childError && (
+              <div className="auth-alert error" role="alert">{childError}</div>
+            )}
+            <div className="form-group">
+              <label htmlFor="child-name-input">Child's name</label>
+              <input
+                id="child-name-input"
+                type="text"
+                value={childName}
+                onChange={(e) => setChildName(e.target.value)}
+                placeholder="e.g. Sophie"
+                required
+                autoFocus
+              />
+            </div>
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={addingChild || !childName.trim()}
+            >
+              {addingChild ? "Adding…" : "Add child"}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── Wish creation/edit modal ── */}
+      {showWishModal && wishModalTarget && (
+        <WishModal
+          currentUser={user}
+          recipientId={wishModalTarget.recipientId}
+          recipientName={wishModalTarget.recipientName}
+          existingWish={editingWish}
+          userFamilies={allUserFamilies}
+          currentFamilyId={family?.id ?? ""}
+          onClose={() => {
+            setShowWishModal(false);
+            setEditingWish(null);
+            setWishModalTarget(null);
+          }}
+          onSuccess={async () => {
+            setShowWishModal(false);
+            setEditingWish(null);
+            setWishModalTarget(null);
+            if (currentView === "wishes") {
+              await reloadMyWishes();
+            } else {
+              await reloadMemberWishesAndIdeas();
+            }
+          }}
+        />
+      )}
+
+      {/* ── Gift Idea modal ── */}
+      {showGiftIdeaModal && selectedMember && family && (
+        <GiftIdeaModal
+          currentUser={user}
+          recipientId={selectedMember.id}
+          recipientName={selectedMember.displayName}
+          familyId={family.id}
+          onClose={() => setShowGiftIdeaModal(false)}
+          onSuccess={async () => {
+            setShowGiftIdeaModal(false);
+            await reloadMemberWishesAndIdeas();
+          }}
+        />
+      )}
+
+      {/* ── Family Settings modal ── */}
+      {showFamilySettings && family && (
+        <FamilySettingsModal
+          currentUser={user}
+          family={family}
+          members={members}
+          onClose={() => setShowFamilySettings(false)}
+          onMembersUpdated={async () => {
+            const mems = await getFamilyMembers(family.id);
+            setMembers(mems);
+          }}
+          onFamilyDeleted={async () => {
+            setShowFamilySettings(false);
+            await loadFamily();
+          }}
+        />
+      )}
+
+      {/* ── Sidebar ── */}
       <aside className="sidebar" aria-label="Family navigation">
         <div className="brand">
           <Gift aria-hidden="true" />
           <span>Wishlist</span>
         </div>
 
-        <button className="primary-action" type="button">
-          <MailPlus aria-hidden="true" />
-          Invite
-        </button>
+        {/* Multi-family switcher */}
+        {allUserFamilies.length > 1 && (
+          <div style={{ display: "grid", gap: "6px" }}>
+            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#8fa397", letterSpacing: "0.05em" }}>
+              Switch Family
+            </label>
+            <select
+              value={family?.id ?? ""}
+              onChange={(e) => loadFamily(e.target.value)}
+              style={{
+                background: "#22332c",
+                color: "#fff",
+                border: "1px solid #364d42",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                fontSize: "0.9rem",
+              }}
+            >
+              {allUserFamilies.map((fam) => (
+                <option key={fam.id} value={fam.id}>
+                  {fam.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {isAdmin && (
+          <button
+            className="primary-action"
+            type="button"
+            onClick={() => setShowInviteModal(true)}
+          >
+            <MailPlus aria-hidden="true" />
+            Invite
+          </button>
+        )}
 
         <nav className="nav-list" aria-label="Main">
           <button
@@ -107,112 +591,420 @@ export function App() {
         </div>
       </aside>
 
+      {/* ── Workspace ── */}
       <section className="workspace">
         {currentView === "claims" ? (
           <MyClaimsScreen onBack={() => setCurrentView("family")} />
-        ) : (
+        ) : currentView === "wishes" ? (
+          /* ── My Wishes tab ── */
           <>
             <header className="topbar">
               <div>
-                <p className="eyebrow">Smith Family</p>
+                <p className="eyebrow">{family?.name}</p>
+                <h1>My wishes</h1>
+              </div>
+              <button
+                type="button"
+                className="primary-action"
+                style={{ padding: "0 16px" }}
+                onClick={() => {
+                  setWishModalTarget({ recipientId: user.uid, recipientName: "Myself" });
+                  setEditingWish(null);
+                  setShowWishModal(true);
+                }}
+              >
+                <Plus aria-hidden="true" style={{ width: 16, height: 16 }} />
+                New wish
+              </button>
+            </header>
+
+            {myWishes.length === 0 ? (
+              <div className="empty-state">
+                <Gift aria-hidden="true" className="empty-gift-icon" />
+                <h3>No wishes yet</h3>
+                <p>Click "New wish" above to add items you are hoping for this Christmas!</p>
+              </div>
+            ) : (
+              <div className="wish-list">
+                {myWishes.map((wish) => (
+                  <article
+                    className="wish-row"
+                    key={wish.id}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{wish.title}</span>
+                      {wish.description && (
+                        <p className="wish-desc">{wish.description}</p>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        style={{ padding: "4px 8px", minHeight: "32px" }}
+                        onClick={() => {
+                          setWishModalTarget({ recipientId: wish.recipientId, recipientName: "Myself" });
+                          setEditingWish(wish);
+                          setShowWishModal(true);
+                        }}
+                        title="Edit wish"
+                      >
+                        <Edit3 style={{ width: 14, height: 14 }} />
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          background: "transparent",
+                          border: "1px solid #e27d7d",
+                          color: "#c92a2a",
+                          borderRadius: "6px",
+                          padding: "4px 8px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                        onClick={() => handleDeleteWish(wish.id)}
+                        title="Delete wish"
+                      >
+                        <Trash2 style={{ width: 14, height: 14 }} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          /* ── Family tab ── */
+          <>
+            <header className="topbar">
+              <div>
+                <p className="eyebrow">{family?.name}</p>
                 <h1>Christmas wishes</h1>
               </div>
-              <div className="privacy-pill">
-                <LockKeyhole aria-hidden="true" />
-                Surprise privacy enforced
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    style={{ padding: "0 12px", minHeight: "36px", fontSize: "0.88rem" }}
+                    onClick={() => setShowFamilySettings(true)}
+                  >
+                    <Settings style={{ width: 15, height: 15, marginRight: 6 }} />
+                    Settings
+                  </button>
+                )}
+                <div className="privacy-pill">
+                  <LockKeyhole aria-hidden="true" />
+                  Surprise privacy enforced
+                </div>
               </div>
             </header>
 
-            <section className="summary-grid" aria-label="Family summary">
-              <div className="metric-card">
-                <span className="metric-value">3</span>
-                <span className="metric-label">members</span>
-              </div>
-              <div className="metric-card">
-                <span className="metric-value">11</span>
-                <span className="metric-label">visible wishes</span>
-              </div>
-              <div className="metric-card">
-                <span className="metric-value">8</span>
-                <span className="metric-label">unclaimed</span>
-              </div>
-            </section>
+            {familyError && (
+              <div className="auth-alert error" role="alert">{familyError}</div>
+            )}
 
-            <div className="content-grid">
-              <section className="panel" id="family">
-                <div className="panel-header">
-                  <h2>Family</h2>
-                  <button className="secondary-action" type="button">
-                    Add child profile
-                  </button>
-                </div>
+            {familyLoading ? (
+              <div className="loading-container" style={{ minHeight: 200 }}>
+                <p>Loading family data…</p>
+              </div>
+            ) : (
+              <>
+                {/* ── Metrics ── */}
+                <section className="summary-grid" aria-label="Family summary">
+                  <div className="metric-card">
+                    <span className="metric-value">{members.length}</span>
+                    <span className="metric-label">members</span>
+                  </div>
+                  <div className="metric-card">
+                    <span className="metric-value">{totalWishes}</span>
+                    <span className="metric-label">visible items</span>
+                  </div>
+                  <div className="metric-card">
+                    <span className="metric-value">{unclaimed}</span>
+                    <span className="metric-label">unclaimed</span>
+                  </div>
+                </section>
 
-                <div className="member-list">
-                  {familyMembers.map((member) => (
-                    <article className="member-row" key={member.name}>
-                      <div>
-                        <h3>{member.name}</h3>
-                        <p>{member.kind}</p>
+                <div className="content-grid">
+                  {/* ── Member list ── */}
+                  <section className="panel" id="family">
+                    <div className="panel-header">
+                      <h2>Family</h2>
+                      {isAdmin && (
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={() => setShowChildModal(true)}
+                        >
+                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          Add child
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="member-list">
+                      {/* Current user row */}
+                      {currentUserMember && (
+                        <article
+                          className={`member-row member-row--clickable ${selectedMember?.id === currentUserMember.id ? "member-row--selected" : ""}`}
+                          key={currentUserMember.id}
+                          onClick={() => setSelectedMember(currentUserMember)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === "Enter" && setSelectedMember(currentUserMember)}
+                        >
+                          <div>
+                            <h3>{currentUserMember.displayName} <span className="you-badge">you</span></h3>
+                            <p>{currentUserMember.admin ? "Admin" : "Member"}</p>
+                          </div>
+                        </article>
+                      )}
+
+                      {otherMembers.map((member) => (
+                        <article
+                          className={`member-row member-row--clickable ${selectedMember?.id === member.id ? "member-row--selected" : ""}`}
+                          key={member.id}
+                          onClick={() => setSelectedMember(member)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === "Enter" && setSelectedMember(member)}
+                        >
+                          <div>
+                            <h3>{member.displayName}</h3>
+                            <p>{member.kind === "managedChild" ? "Managed child" : member.admin ? "Admin" : "Member"}</p>
+                          </div>
+                        </article>
+                      ))}
+
+                      {members.length <= 1 && (
+                        <p className="empty-members-hint">
+                          No other members yet.{isAdmin ? " Use Invite to add someone." : ""}
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ── Selected member's wishes ── */}
+                  <section className="panel" id="wishes">
+                    <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <h2>{selectedMember ? `${selectedMember.displayName}'s list` : "Select a member"}</h2>
+                      {selectedMember && isGuardianOfSelected && (
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          onClick={() => {
+                            setWishModalTarget({ recipientId: selectedMember.id, recipientName: selectedMember.displayName });
+                            setEditingWish(null);
+                            setShowWishModal(true);
+                          }}
+                        >
+                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          Add child wish
+                        </button>
+                      )}
+                      {selectedMember?.id === user.uid && (
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          onClick={() => {
+                            setWishModalTarget({ recipientId: user.uid, recipientName: "Myself" });
+                            setEditingWish(null);
+                            setShowWishModal(true);
+                          }}
+                        >
+                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          Add wish
+                        </button>
+                      )}
+                    </div>
+
+                    {!selectedMember ? (
+                      <p className="empty-members-hint">Click a family member to see their wishes.</p>
+                    ) : wishPanelLoading ? (
+                      <p className="empty-members-hint">Loading…</p>
+                    ) : memberWishes.length === 0 ? (
+                      <p className="empty-members-hint">No wishes yet.</p>
+                    ) : (
+                      <div className="wish-list">
+                        {memberWishes.map((wish) => {
+                          const claimKey = `wish_${wish.id}`;
+                          const isClaimed = !!claims[claimKey];
+                          const isMe = claims[claimKey]?.claimantId === user.uid;
+                          const busy = claimingId === claimKey;
+                          const canManageWish = selectedMember.id === user.uid || isGuardianOfSelected;
+
+                          return (
+                            <article
+                              className="wish-row"
+                              key={wish.id}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 600 }}>{wish.title}</span>
+                                {wish.description && (
+                                  <p className="wish-desc">{wish.description}</p>
+                                )}
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                {canManageWish && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="secondary-action"
+                                      style={{ padding: "4px 8px", minHeight: "30px" }}
+                                      onClick={() => {
+                                        setWishModalTarget({
+                                          recipientId: wish.recipientId,
+                                          recipientName: selectedMember.displayName,
+                                        });
+                                        setEditingWish(wish);
+                                        setShowWishModal(true);
+                                      }}
+                                      title="Edit wish"
+                                    >
+                                      <Edit3 style={{ width: 13, height: 13 }} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      style={{
+                                        background: "transparent",
+                                        border: "1px solid #e27d7d",
+                                        color: "#c92a2a",
+                                        borderRadius: "6px",
+                                        padding: "4px 8px",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                      }}
+                                      onClick={() => handleDeleteWish(wish.id)}
+                                      title="Delete wish"
+                                    >
+                                      <Trash2 style={{ width: 13, height: 13 }} />
+                                    </button>
+                                  </>
+                                )}
+
+                                {selectedMember.id !== user.uid && (
+                                  <button
+                                    className={isClaimed ? "claim claimed" : "claim"}
+                                    type="button"
+                                    disabled={busy || (isClaimed && !isMe)}
+                                    onClick={() => handleClaim("wish", wish.id, wish.recipientId)}
+                                    title={isClaimed && !isMe ? "Claimed by someone else" : undefined}
+                                  >
+                                    {busy ? "…" : isClaimed ? (isMe ? "Unclaim" : "Claimed") : "Claim"}
+                                  </button>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
-                      <dl>
-                        <div>
-                          <dt>Wishes</dt>
-                          <dd>{member.wishes}</dd>
-                        </div>
-                        <div>
-                          <dt>Open</dt>
-                          <dd>{member.unclaimed}</dd>
-                        </div>
-                      </dl>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                    )}
+                  </section>
 
-              <section className="panel" id="wishes">
-                <div className="panel-header">
-                  <h2>Anna's list</h2>
-                  <button className="secondary-action" type="button">
-                    Add gift idea
-                  </button>
-                </div>
+                  {/* ── Hidden gift ideas ── */}
+                  <section className="panel secret-panel">
+                    <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <h2>Hidden ideas</h2>
+                        {selectedMember && (
+                          <span className="hidden-label">
+                            Not visible to {selectedMember.displayName}
+                          </span>
+                        )}
+                      </div>
+                      {selectedMember && selectedMember.id !== user.uid && (
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          onClick={() => setShowGiftIdeaModal(true)}
+                        >
+                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          Add idea
+                        </button>
+                      )}
+                    </div>
 
-                <div className="wish-list">
-                  {visibleWishes.map((wish) => (
-                    <article className="wish-row" key={wish.title}>
-                      <span>{wish.title}</span>
-                      <button
-                        className={wish.claimed ? "claim claimed" : "claim"}
-                        type="button"
-                      >
-                        {wish.claimed ? "Claimed" : "Claim"}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                    {!selectedMember ? (
+                      <p className="empty-members-hint">Select a member first.</p>
+                    ) : selectedMember.id === user.uid ? (
+                      <p className="empty-members-hint">
+                        Surprise privacy: You cannot view secret gift ideas planned for yourself.
+                      </p>
+                    ) : wishPanelLoading ? (
+                      <p className="empty-members-hint">Loading…</p>
+                    ) : memberGiftIdeas.length === 0 ? (
+                      <p className="empty-members-hint">No hidden ideas yet.</p>
+                    ) : (
+                      <div className="wish-list">
+                        {memberGiftIdeas.map((idea) => {
+                          const claimKey = `giftIdea_${idea.id}`;
+                          const isClaimed = !!claims[claimKey];
+                          const isMe = claims[claimKey]?.claimantId === user.uid;
+                          const busy = claimingId === claimKey;
+                          const isCreator = idea.creatorId === user.uid;
 
-              <section className="panel secret-panel">
-                <div className="panel-header">
-                  <h2>Hidden ideas</h2>
-                  <span className="hidden-label">Not visible to Anna</span>
-                </div>
+                          return (
+                            <article
+                              className="wish-row"
+                              key={idea.id}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 600 }}>{idea.title}</span>
+                                {idea.description && (
+                                  <p className="wish-desc">{idea.description}</p>
+                                )}
+                              </div>
 
-                <div className="wish-list">
-                  {giftIdeas.map((idea) => (
-                    <article className="wish-row" key={idea.title}>
-                      <span>{idea.title}</span>
-                      <button
-                        className={idea.claimed ? "claim claimed" : "claim"}
-                        type="button"
-                      >
-                        {idea.claimed ? "Claimed" : "Claim"}
-                      </button>
-                    </article>
-                  ))}
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                {isCreator && (
+                                  <button
+                                    type="button"
+                                    style={{
+                                      background: "transparent",
+                                      border: "1px solid #e27d7d",
+                                      color: "#c92a2a",
+                                      borderRadius: "6px",
+                                      padding: "4px 8px",
+                                      cursor: "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                    }}
+                                    onClick={() => handleDeleteGiftIdea(idea.id)}
+                                    title="Delete gift idea"
+                                  >
+                                    <Trash2 style={{ width: 13, height: 13 }} />
+                                  </button>
+                                )}
+
+                                <button
+                                  className={isClaimed ? "claim claimed" : "claim"}
+                                  type="button"
+                                  disabled={busy || (isClaimed && !isMe)}
+                                  onClick={() => handleClaim("giftIdea", idea.id, idea.recipientId)}
+                                  title={isClaimed && !isMe ? "Claimed by someone else" : undefined}
+                                >
+                                  {busy ? "…" : isClaimed ? (isMe ? "Unclaim" : "Claimed") : "Claim"}
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
                 </div>
-              </section>
-            </div>
+              </>
+            )}
           </>
         )}
 

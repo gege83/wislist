@@ -6,7 +6,7 @@ const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "demo-api-key",
   authDomain:
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? "christmas-wishlist.local",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "christmas-wishlist",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "christmas-wishlist-prod",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? "",
   messagingSenderId:
     import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? "000000000000",

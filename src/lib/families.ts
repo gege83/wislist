@@ -58,41 +58,56 @@ export async function createFamily(
   return familyData;
 }
 
-export async function getUserFamilies(userId: string): Promise<Family[]> {
-  // Query all members subcollections across families where userId matches
-  const membersQuery = query(
-    collectionGroup(db, "members"),
-    where("userId", "==", userId)
-  );
+export async function getFamilyById(familyId: string): Promise<Family | null> {
+  const familyDoc = await getDoc(doc(db, "families", familyId));
+  if (!familyDoc.exists()) return null;
+  const data = familyDoc.data();
+  if (data.deletedAt) return null;
+  return {
+    id: familyDoc.id,
+    name: data.name,
+    createdBy: data.createdBy,
+    createdAt: data.createdAt,
+    deletedAt: data.deletedAt ?? null,
+  };
+}
 
-  const memberSnaps = await getDocs(membersQuery);
+export async function getUserFamilies(
+  userId: string,
+  knownFamilyId?: string | null
+): Promise<Family[]> {
   const familyIds = new Set<string>();
+  if (knownFamilyId) {
+    familyIds.add(knownFamilyId);
+  }
 
-  memberSnaps.forEach((snap) => {
-    const data = snap.data();
-    if (!data.removedAt) {
-      // member document is at families/{familyId}/members/{userId}
-      const pathParts = snap.ref.path.split("/");
-      if (pathParts.length >= 2 && pathParts[0] === "families") {
-        familyIds.add(pathParts[1]);
+  try {
+    // Query all members subcollections across families where userId matches
+    const membersQuery = query(
+      collectionGroup(db, "members"),
+      where("userId", "==", userId)
+    );
+
+    const memberSnaps = await getDocs(membersQuery);
+    memberSnaps.forEach((snap) => {
+      const data = snap.data();
+      if (!data.removedAt) {
+        // member document is at families/{familyId}/members/{userId}
+        const pathParts = snap.ref.path.split("/");
+        if (pathParts.length >= 2 && pathParts[0] === "families") {
+          familyIds.add(pathParts[1]);
+        }
       }
-    }
-  });
+    });
+  } catch (err) {
+    console.warn("Collection group query failed, checking known family IDs:", err);
+  }
 
   const families: Family[] = [];
   for (const familyId of familyIds) {
-    const familyDoc = await getDoc(doc(db, "families", familyId));
-    if (familyDoc.exists()) {
-      const data = familyDoc.data();
-      if (!data.deletedAt) {
-        families.push({
-          id: familyDoc.id,
-          name: data.name,
-          createdBy: data.createdBy,
-          createdAt: data.createdAt,
-          deletedAt: data.deletedAt ?? null,
-        });
-      }
+    const family = await getFamilyById(familyId);
+    if (family) {
+      families.push(family);
     }
   }
 

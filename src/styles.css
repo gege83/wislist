@@ -752,4 +752,238 @@ code {
   cursor: not-allowed;
 }
 
+/* ── Modal ─────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 32, 29, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid #dfd8c9;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px -10px rgba(22, 32, 29, 0.25);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #ede8de;
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #617068;
+  transition: background-color 0.15s;
+}
+
+.modal-close:hover {
+  background: #f0ece4;
+  color: #1b201e;
+}
+
+.modal-body {
+  padding: 20px 24px 24px;
+}
+
+/* ── Family setup screen ────────────────────────────────────────────────── */
+.setup-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: radial-gradient(circle at top, #fdfbf7 0%, #ede8de 100%);
+}
+
+.setup-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 36px 32px;
+  background: #ffffff;
+  border: 1px solid #dfd8c9;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -5px rgba(24, 35, 31, 0.05),
+              0 8px 10px -6px rgba(24, 35, 31, 0.05);
+}
+
+.setup-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.setup-header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.setup-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.setup-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border: 1px solid #d4cdc0;
+  border-radius: 8px;
+  background: #fffdfa;
+  color: #4b5850;
+  font-weight: 600;
+  font-size: 0.88rem;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.setup-tab.active {
+  background: #315948;
+  border-color: #315948;
+  color: #fffaf0;
+}
+
+.setup-tab:hover:not(.active) {
+  background: #f0ece4;
+  border-color: #beb5a5;
+}
+
+/* ── Invite results ─────────────────────────────────────────────────────── */
+.invite-results {
+  margin-top: 16px;
+}
+
+.invite-empty {
+  text-align: center;
+  color: #637169;
+  font-size: 0.9rem;
+  padding: 16px;
+}
+
+.invite-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.invite-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dfd8c9;
+  border-radius: 10px;
+  background: #fffdfa;
+}
+
+.invite-family-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #1b201e;
+}
+
+.invite-expires {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: #8c9b93;
+}
+
+/* ── Member row states ──────────────────────────────────────────────────── */
+.member-row--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.member-row--clickable:hover {
+  border-color: #b0c8bb;
+  background: #f5faf7;
+}
+
+.member-row--selected {
+  border-color: #315948 !important;
+  background: #f0f7f3 !important;
+}
+
+.you-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ebe4d8;
+  color: #5a5040;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+/* ── Empty states ───────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  background: #ffffff;
+  border: 1px dashed #dfd8c9;
+  border-radius: 12px;
+}
+
+.empty-members-hint {
+  color: #8c9b93;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.wish-desc {
+  font-size: 0.82rem;
+  color: #617068;
+  margin: 2px 0 0;
+}
+
+/* ── Success alert ──────────────────────────────────────────────────────── */
+.auth-alert.success {
+  color: #275341;
+  background: #dceee3;
+  border: 1px solid #b4d9c4;
+  margin-bottom: 16px;
+}
+
+/* ── Primary-action in sidebar (full width) ─────────────────────────────── */
+.sidebar .primary-action {
+  width: 100%;
+}
 

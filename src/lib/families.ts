@@ -144,7 +144,8 @@ export async function getFamilyMembers(
 export async function createInvite(
   familyId: string,
   email: string,
-  currentUser: User
+  currentUser: User,
+  familyName?: string
 ): Promise<Invite> {
   const inviteRef = doc(collection(db, "invites"));
   const normalizedEmail = normalizeEmail(email);
@@ -156,6 +157,7 @@ export async function createInvite(
   const inviteData: Invite = {
     id: inviteRef.id,
     familyId,
+    ...(familyName ? { familyName: familyName.trim() } : {}),
     email: email.trim(),
     normalizedEmail,
     createdBy: currentUser.uid,
@@ -164,6 +166,8 @@ export async function createInvite(
     acceptedAt: null,
     acceptedBy: null,
     revokedAt: null,
+    rejectedAt: null,
+    rejectedBy: null,
   };
 
   await setDoc(inviteRef, inviteData);
@@ -188,6 +192,7 @@ export async function getPendingInvitesForEmail(
     if (
       !data.acceptedAt &&
       !data.revokedAt &&
+      !data.rejectedAt &&
       new Date(data.expiresAt) > now
     ) {
       invites.push({ ...data, id: d.id });
@@ -195,6 +200,62 @@ export async function getPendingInvitesForEmail(
   });
 
   return invites;
+}
+
+/**
+ * Retrieve all invites created by a specific user.
+ * Returns all invites regardless of status.
+ */
+export async function getSentInvitesForUser(userId: string): Promise<Invite[]> {
+  const q = query(
+    collection(db, "invites"),
+    where("createdBy", "==", userId)
+  );
+  const snaps = await getDocs(q);
+  const invites: Invite[] = [];
+  snaps.forEach((d) => {
+    const data = d.data() as Invite;
+    invites.push({ ...data, id: d.id });
+  });
+  return invites;
+}
+
+export async function rejectInvite(
+  inviteId: string,
+  user: User
+): Promise<void> {
+  const inviteRef = doc(db, "invites", inviteId);
+  const inviteSnap = await getDoc(inviteRef);
+
+  if (!inviteSnap.exists()) {
+    throw new Error("Invite not found");
+  }
+
+  const invite = inviteSnap.data() as Invite;
+  const userNormalized = normalizeEmail(user.email || "");
+
+  if (invite.normalizedEmail !== userNormalized) {
+    throw new Error("This invite was sent to a different email address.");
+  }
+
+  if (invite.acceptedAt) {
+    throw new Error("This invite has already been accepted.");
+  }
+
+  if (invite.rejectedAt) {
+    throw new Error("This invite has already been rejected.");
+  }
+
+  if (invite.revokedAt) {
+    throw new Error("This invite has been revoked.");
+  }
+
+  const now = new Date().toISOString();
+
+  await updateDoc(inviteRef, {
+    rejectedAt: now,
+    rejectedBy: user.uid,
+  });
 }
 
 export async function acceptInvite(

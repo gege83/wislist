@@ -185,6 +185,48 @@ describe("Families and Invites", () => {
     expect((memberSnap.data() as FamilyMember).userId).toBe(bobId);
   });
 
+  it("users can reject an invitation and it is recorded as rejected", async () => {
+    const charlieId = "charlie_uid";
+    const charlieEmail = "Charlie@example.com";
+    const charlieDb = testEnv
+      .authenticatedContext(charlieId, { email: charlieEmail })
+      .firestore();
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "invites", "inv_charlie"), {
+        familyId: "fam1",
+        familyName: "Smiths",
+        email: charlieEmail,
+        normalizedEmail: normalizeEmail(charlieEmail),
+        createdBy: "alice",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 100000).toISOString(),
+        acceptedAt: null,
+        acceptedBy: null,
+        revokedAt: null,
+        rejectedAt: null,
+        rejectedBy: null,
+      });
+    });
+
+    const inviteRef = doc(charlieDb, "invites", "inv_charlie");
+    const snap = await getDoc(inviteRef);
+    expect(snap.exists()).toBe(true);
+    expect((snap.data() as Invite).familyName).toBe("Smiths");
+
+    // Charlie rejects the invite
+    const now = new Date().toISOString();
+    await updateDoc(inviteRef, {
+      rejectedAt: now,
+      rejectedBy: charlieId,
+    });
+
+    const updatedSnap = await getDoc(inviteRef);
+    expect((updatedSnap.data() as Invite).rejectedAt).toBe(now);
+    expect((updatedSnap.data() as Invite).rejectedBy).toBe(charlieId);
+  });
+
   it("admins can soft-delete families", async () => {
     const adminId = "alice_uid";
     const adminDb = testEnv

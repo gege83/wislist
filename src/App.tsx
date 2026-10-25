@@ -4,6 +4,7 @@ import {
   ListChecks,
   LockKeyhole,
   LogOut,
+  Mail,
   MailPlus,
   ShieldCheck,
   Users,
@@ -15,8 +16,10 @@ import {
 } from "lucide-react";
 import { firebaseApp } from "./lib/firebase";
 import { useAuth } from "./context/authContext";
+import { normalizeEmail } from "./lib/auth";
 import { AuthScreen } from "./components/AuthScreen";
 import { MyClaimsScreen } from "./components/MyClaimsScreen";
+import { InvitationsScreen } from "./components/InvitationsScreen";
 import { FamilySetupScreen } from "./components/FamilySetupScreen";
 import { WishModal } from "./components/WishModal";
 import { GiftIdeaModal } from "./components/GiftIdeaModal";
@@ -25,6 +28,10 @@ import {
   getUserFamilies,
   getFamilyMembers,
   createInvite,
+  acceptInvite,
+  rejectInvite,
+  getPendingInvitesForEmail,
+  getSentInvitesForUser,
   createManagedChildProfile,
 } from "./lib/families";
 import {
@@ -34,7 +41,7 @@ import {
 } from "./lib/wishes";
 import { getGiftIdeasForRecipient, deleteGiftIdea } from "./lib/giftIdeas";
 import { claimItem, unclaimItem, getClaimsForFamily } from "./lib/claims";
-import { Family, FamilyMember, Wish, GiftIdea, Claim } from "./types";
+import { Family, FamilyMember, Wish, GiftIdea, Claim, Invite } from "./types";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
 
@@ -76,8 +83,8 @@ function Modal({
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export function App() {
-  const { user, profile, loading, signOut } = useAuth();
-  const [currentView, setCurrentView] = useState<"family" | "wishes" | "claims">("family");
+  const { user, profile, loading, signOut, refreshProfile } = useAuth();
+  const [currentView, setCurrentView] = useState<"family" | "wishes" | "claims" | "invites">("family");
   const projectId = firebaseApp.options.projectId ?? "local emulator";
 
   // ── Family data ──────────────────────────────────────────────────────────
@@ -86,6 +93,12 @@ export function App() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [familyLoading, setFamilyLoading] = useState(true);
   const [familyError, setFamilyError] = useState<string | null>(null);
+
+  // ── Pending invites ───────────────────────────────────────────────────────
+  const [pendingInvites, setPendingInvites] = useState<Invite[]>([]);
+  const [sentInvites, setSentInvites] = useState<Invite[]>([]);
+  const [loadingInvites, setLoadingInvites] = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
 
   // ── Selected member for wish / gift-idea panel ───────────────────────────
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
@@ -176,7 +189,9 @@ export function App() {
   );
 
   useEffect(() => {
-    if (user) loadFamily();
+    if (user) {
+      void Promise.resolve().then(() => loadFamily());
+    }
   }, [user, profile, loadFamily]);
 
   // ── Reload member wishes & hidden gift ideas ─────────────────────────────
@@ -196,7 +211,7 @@ export function App() {
   }, [family, selectedMember, user]);
 
   useEffect(() => {
-    reloadMemberWishesAndIdeas();
+    void Promise.resolve().then(() => reloadMemberWishesAndIdeas());
   }, [reloadMemberWishesAndIdeas]);
 
   // ── Reload my own wishes ─────────────────────────────────────────────────
@@ -208,9 +223,42 @@ export function App() {
 
   useEffect(() => {
     if (user && currentView === "wishes") {
-      reloadMyWishes();
+      void Promise.resolve().then(() => reloadMyWishes());
     }
   }, [user, currentView, reloadMyWishes]);
+
+  // ── Load pending invites ─────────────────────────────────────────────────
+  const loadPendingInvites = useCallback(async () => {
+    const email = profile?.email || user?.email;
+    if (!email) return;
+    setLoadingInvites(true);
+    try {
+      const invs = await getPendingInvitesForEmail(email);
+      setPendingInvites(invs);
+    } catch (err) {
+      console.error("Failed to load pending invites:", err);
+    } finally {
+      setLoadingInvites(false);
+    }
+  }, [profile?.email, user?.email]);
+
+  const loadSentInvites = useCallback(async () => {
+    if (!user) return;
+    setLoadingInvites(true);
+    try {
+      const invs = await getSentInvitesForUser(user.uid);
+      setSentInvites(invs);
+    } catch (err) {
+      console.error("Failed to load sent invites:", err);
+    } finally {
+      setLoadingInvites(false);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    void loadPendingInvites();
+    void loadSentInvites();
+  }, [user, profile?.email, loadPendingInvites, loadSentInvites]);
 
   // ── Derived metrics ──────────────────────────────────────────────────────
   const totalWishes = memberWishes.length + memberGiftIdeas.length;
@@ -237,7 +285,7 @@ export function App() {
     setInviting(true);
     setInviteError(null);
     try {
-      await createInvite(family.id, inviteEmail.trim(), user);
+      await createInvite(family.id, inviteEmail.trim(), user, family.name);
       setInviteSuccess(true);
       setInviteEmail("");
     } catch (err) {
@@ -245,6 +293,28 @@ export function App() {
     } finally {
       setInviting(false);
     }
+  };
+
+  const handleAcceptInvite = async (inv: Invite) => {
+    if (!user) return;
+    const resolvedProfile = profile || {
+      displayName: user.displayName || user.email?.split("@")[0] || "Family Member",
+      email: user.email ?? "",
+      normalizedEmail: normalizeEmail(user.email ?? ""),
+      createdAt: new Date().toISOString(),
+      lastSelectedFamilyId: null,
+    };
+    const joinedFamilyId = await acceptInvite(inv.id, user, resolvedProfile);
+    try { await refreshProfile(); } catch { /* non-fatal */ }
+    await loadPendingInvites();
+    await loadFamily(joinedFamilyId);
+    setCurrentView("family");
+  };
+
+  const handleRejectInvite = async (inv: Invite) => {
+    if (!user) return;
+    await rejectInvite(inv.id, user);
+    await loadPendingInvites();
   };
 
   const handleAddChild = async (e: React.FormEvent) => {
@@ -569,6 +639,17 @@ export function App() {
             <ShieldCheck aria-hidden="true" />
             My claims
           </button>
+          <button
+            type="button"
+            className={`nav-item ${currentView === "invites" ? "active" : ""}`}
+            onClick={() => setCurrentView("invites")}
+          >
+            <Mail aria-hidden="true" />
+            Invitations
+            {pendingInvites.length > 0 && (
+              <span className="nav-badge">{pendingInvites.length}</span>
+            )}
+          </button>
         </nav>
 
         <div className="user-profile-bar">
@@ -593,8 +674,103 @@ export function App() {
 
       {/* ── Workspace ── */}
       <section className="workspace">
+        {pendingInvites.length > 0 && !dismissedBanner && currentView !== "invites" && (
+          <div className="invite-alert-banner" role="status">
+            <div className="invite-alert-content">
+              <Mail aria-hidden="true" style={{ width: 18, height: 18, color: "#e88080" }} />
+              <span>
+                You have {pendingInvites.length} pending family invitation{pendingInvites.length > 1 ? "s" : ""}!
+              </span>
+            </div>
+            <div className="invite-alert-actions">
+              <button
+                type="button"
+                className="invite-alert-view-btn"
+                onClick={() => setCurrentView("invites")}
+              >
+                View & respond
+              </button>
+              <button
+                type="button"
+                className="invite-alert-dismiss-btn"
+                onClick={() => setDismissedBanner(true)}
+                aria-label="Dismiss banner"
+              >
+                <X aria-hidden="true" style={{ width: 14, height: 14 }} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {currentView === "claims" ? (
           <MyClaimsScreen onBack={() => setCurrentView("family")} />
+        ) : currentView === "invites" ? (
+          <>
+            <InvitationsScreen
+              invites={pendingInvites}
+              loading={loadingInvites}
+              onRefresh={loadPendingInvites}
+              onAccept={handleAcceptInvite}
+              onReject={handleRejectInvite}
+              onBack={() => setCurrentView("family")}
+            />
+            {/* Sent invites table */}
+            <section className="sent-invites-section" style={{ marginTop: "24px" }}>
+              <h2 style={{ color: "#fff", marginBottom: "12px" }}>Invites You Sent</h2>
+              {sentInvites.length === 0 ? (
+                <p style={{ color: "#8fa397" }}>You have not sent any invitations.</p>
+              ) : (
+                <table className="sent-invites-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #2d4538" }}>
+                      <th style={{ textAlign: "left", padding: "8px" }}>Email</th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>Family</th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>Status</th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>Expires</th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sentInvites.map((inv) => {
+                      const status = inv.acceptedAt
+                        ? "Accepted"
+                        : inv.rejectedAt
+                        ? "Rejected"
+                        : inv.revokedAt
+                        ? "Revoked"
+                        : new Date(inv.expiresAt) < new Date()
+                        ? "Expired"
+                        : "Pending";
+                      const expiry = new Date(inv.expiresAt).toLocaleDateString();
+                      const copyLink = async () => {
+                        const link = `${window.location.origin}/invite/${inv.id}`;
+                        await navigator.clipboard.writeText(link);
+                        setActionSuccess(`Link copied for ${inv.email}`);
+                      };
+                      return (
+                        <tr key={inv.id} style={{ borderBottom: "1px solid #2d4538" }}>
+                          <td style={{ padding: "8px", color: "#fff" }}>{inv.email}</td>
+                          <td style={{ padding: "8px", color: "#fff" }}>{inv.familyName || "(none)"}</td>
+                          <td style={{ padding: "8px", color: "#fff" }}>{status}</td>
+                          <td style={{ padding: "8px", color: "#fff" }}>{expiry}</td>
+                          <td style={{ padding: "8px" }}>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              style={{ fontSize: "0.85rem", padding: "4px 8px" }}
+                              onClick={copyLink}
+                            >
+                              Copy Link
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </section>
+          </>
         ) : currentView === "wishes" ? (
           /* ── My Wishes tab ── */
           <>

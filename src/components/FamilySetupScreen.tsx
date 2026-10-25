@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Gift, Home, Mail } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Gift, Home, Mail, RefreshCw, X } from "lucide-react";
 import { useAuth } from "../context/authContext";
 import { normalizeEmail } from "../lib/auth";
-import { createFamily, getPendingInvitesForEmail, acceptInvite } from "../lib/families";
+import { createFamily, getPendingInvitesForEmail, acceptInvite, rejectInvite } from "../lib/families";
 import { Invite, UserProfile } from "../types";
 
 interface FamilySetupScreenProps {
@@ -17,13 +17,56 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
   const [creating, setCreating] = useState(false);
 
   // Invite acceptance
-  const [inviteEmail, setInviteEmail] = useState(profile?.email ?? "");
+  const initialEmail = profile?.email ?? user?.email ?? "";
+  const [inviteEmail, setInviteEmail] = useState(initialEmail);
   const [pendingInvites, setPendingInvites] = useState<Invite[] | null>(null);
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
 
   const [localError, setLocalError] = useState<string | null>(null);
   const displayError = localError || externalError;
+
+  const lookupInvites = useCallback(async (emailToLookup: string) => {
+    if (!emailToLookup.trim()) return;
+    setLocalError(null);
+    setLoadingInvites(true);
+    try {
+      const invites = await getPendingInvitesForEmail(emailToLookup.trim());
+      setPendingInvites(invites);
+      if (invites.length > 0) {
+        setTab("invite");
+      }
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Failed to look up invites.");
+    } finally {
+      setLoadingInvites(false);
+    }
+  }, []);
+
+  // Auto-check on mount for signed-in user
+  useEffect(() => {
+    let ignore = false;
+    const targetEmail = profile?.email || user?.email;
+    if (targetEmail) {
+      getPendingInvitesForEmail(targetEmail.trim())
+        .then((invites) => {
+          if (!ignore) {
+            setPendingInvites(invites);
+            if (invites.length > 0) {
+              setTab("invite");
+            }
+          }
+        })
+        .catch(() => {
+          /* non-fatal */
+        });
+    }
+    return () => {
+      ignore = true;
+    };
+  }, [profile?.email, user?.email]);
 
   /** Build a minimal UserProfile from the Firebase User when Firestore profile hasn't loaded yet. */
   const resolveProfile = (): UserProfile => {
@@ -57,17 +100,7 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
 
   const handleLookupInvites = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteEmail.trim()) return;
-    setLocalError(null);
-    setLoadingInvites(true);
-    try {
-      const invites = await getPendingInvitesForEmail(inviteEmail.trim());
-      setPendingInvites(invites);
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : "Failed to look up invites.");
-    } finally {
-      setLoadingInvites(false);
-    }
+    await lookupInvites(inviteEmail);
   };
 
   const handleAccept = async (invite: Invite) => {
@@ -83,6 +116,21 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
       setLocalError(err instanceof Error ? err.message : "Failed to accept invite.");
     } finally {
       setAcceptingId(null);
+    }
+  };
+
+  const handleReject = async (invite: Invite) => {
+    if (!user) return;
+    setLocalError(null);
+    setRejectingId(invite.id);
+    try {
+      await rejectInvite(invite.id, user);
+      setConfirmRejectId(null);
+      setPendingInvites((prev) => (prev ? prev.filter((i) => i.id !== invite.id) : null));
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Failed to decline invite.");
+    } finally {
+      setRejectingId(null);
     }
   };
 
@@ -151,21 +199,26 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
             <form className="auth-form" onSubmit={handleLookupInvites}>
               <div className="form-group">
                 <label htmlFor="invite-email">Your email address</label>
-                <input
-                  id="invite-email"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => { setInviteEmail(e.target.value); setPendingInvites(null); }}
-                  required
-                />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    id="invite-email"
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => { setInviteEmail(e.target.value); setPendingInvites(null); }}
+                    required
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="submit"
+                    className="auth-submit-btn"
+                    disabled={loadingInvites}
+                    style={{ width: "auto", minHeight: "44px", marginTop: 0, padding: "0 16px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <RefreshCw aria-hidden="true" style={{ width: 14, height: 14, animation: loadingInvites ? "spin 1s linear infinite" : undefined }} />
+                    {loadingInvites ? "Checking…" : "Find"}
+                  </button>
+                </div>
               </div>
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={loadingInvites}
-              >
-                {loadingInvites ? "Checking…" : "Find invites"}
-              </button>
             </form>
 
             {pendingInvites !== null && (
@@ -174,25 +227,78 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
                   <p className="invite-empty">No pending invites found for that address.</p>
                 ) : (
                   <ul className="invite-list">
-                    {pendingInvites.map((inv) => (
-                      <li key={inv.id} className="invite-item">
-                        <div>
-                          <span className="invite-family-label">Family invite</span>
-                          <p className="invite-expires">
-                            Expires {new Date(inv.expiresAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className="auth-submit-btn"
-                          style={{ minHeight: 36, fontSize: "0.88rem", marginTop: 0 }}
-                          onClick={() => handleAccept(inv)}
-                          disabled={acceptingId === inv.id}
-                        >
-                          {acceptingId === inv.id ? "Joining…" : "Accept"}
-                        </button>
-                      </li>
-                    ))}
+                    {pendingInvites.map((inv) => {
+                      const isConfirming = confirmRejectId === inv.id;
+                      return (
+                        <li key={inv.id} className="invite-item" style={{ flexDirection: "column", alignItems: "stretch", gap: "10px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                              <span className="invite-family-label">
+                                {inv.familyName ? `${inv.familyName} Family` : "Family invite"}
+                              </span>
+                              <p className="invite-expires">
+                                Expires {new Date(inv.expiresAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+
+                          {isConfirming ? (
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(220, 38, 38, 0.1)", padding: "8px 12px", borderRadius: "6px", gap: "8px" }}>
+                              <span style={{ fontSize: "0.85rem", color: "#fca5a5" }}>Decline this invite?</span>
+                              <div style={{ display: "flex", gap: "6px" }}>
+                                <button
+                                  type="button"
+                                  style={{ background: "#dc2626", color: "#fff", border: "none", borderRadius: "4px", padding: "4px 10px", fontSize: "0.8rem", cursor: "pointer" }}
+                                  disabled={rejectingId === inv.id}
+                                  onClick={() => handleReject(inv)}
+                                >
+                                  {rejectingId === inv.id ? "Declining…" : "Yes, decline"}
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ background: "transparent", color: "#ccc", border: "1px solid #555", borderRadius: "4px", padding: "4px 10px", fontSize: "0.8rem", cursor: "pointer" }}
+                                  onClick={() => setConfirmRejectId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                              <button
+                                type="button"
+                                style={{
+                                  background: "transparent",
+                                  color: "#ef4444",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  borderRadius: "6px",
+                                  padding: "6px 12px",
+                                  fontSize: "0.85rem",
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                disabled={acceptingId === inv.id || rejectingId === inv.id}
+                                onClick={() => setConfirmRejectId(inv.id)}
+                              >
+                                <X aria-hidden="true" style={{ width: 13, height: 13 }} />
+                                Decline
+                              </button>
+                              <button
+                                type="button"
+                                className="auth-submit-btn"
+                                style={{ minHeight: 36, fontSize: "0.88rem", marginTop: 0, padding: "0 16px", width: "auto" }}
+                                onClick={() => handleAccept(inv)}
+                                disabled={acceptingId === inv.id || rejectingId === inv.id}
+                              >
+                                {acceptingId === inv.id ? "Joining…" : "Accept"}
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

@@ -31,6 +31,7 @@ export interface Family {
 export interface Invite {
   id: string;
   familyId: string;
+  familyName?: string;
   email: string;
   normalizedEmail: string;
   createdBy: string;
@@ -39,6 +40,8 @@ export interface Invite {
   acceptedAt?: string | null;
   acceptedBy?: string | null;
   revokedAt?: string | null;
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
 }
 
 export interface Wish {

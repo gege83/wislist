@@ -31,10 +31,10 @@ service cloud.firestore {
     }
 
     function isMemberOfAnyFamily(familyIds) {
-      return (familyIds.size() > 0 && isFamilyMember(familyIds[0])) ||
-             (familyIds.size() > 1 && isFamilyMember(familyIds[1])) ||
-             (familyIds.size() > 2 && isFamilyMember(familyIds[2])) ||
-             (familyIds.size() > 3 && isFamilyMember(familyIds[3]));
+      return (familyIds != null && familyIds.size() > 0 && isFamilyMember(familyIds[0])) ||
+             (familyIds != null && familyIds.size() > 1 && isFamilyMember(familyIds[1])) ||
+             (familyIds != null && familyIds.size() > 2 && isFamilyMember(familyIds[2])) ||
+             (familyIds != null && familyIds.size() > 3 && isFamilyMember(familyIds[3]));
     }
 
     match /users/{userId} {
@@ -71,14 +71,20 @@ service cloud.firestore {
     }
 
     match /invites/{inviteId} {
-      allow read: if signedIn() && (
-        isFamilyAdmin(resource.data.familyId) ||
-        (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower())
+      // Family admins or the invited user (matched by normalized email) can read, list, and update invites
+      allow read, list: if signedIn() && (
+        resource != null && (
+          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email) ||
+          resource.data.createdBy == request.auth.uid
+        )
+        ||
+        resource == null && request.auth.token.email != null
       );
       allow create: if signedIn() && isFamilyAdmin(request.resource.data.familyId);
       allow update: if signedIn() && (
-        isFamilyAdmin(resource.data.familyId) ||
-        (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower())
+        resource != null && (
+          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email)
+        )
       );
       allow delete: if false;
     }

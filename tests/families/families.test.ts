@@ -214,4 +214,34 @@ describe("Families and Invites", () => {
     const snap = await getDoc(famRef);
     expect((snap.data() as Family).deletedAt).not.toBeNull();
   });
+
+  it("allows user to query their memberships across families via collectionGroup", async () => {
+    const userId = "charlie_uid";
+    const userDb = testEnv
+      .authenticatedContext(userId, { email: "charlie@example.com" })
+      .firestore();
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "families", "fam_a"), {
+        name: "Alpha",
+        createdBy: "someone_else",
+        createdAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+      await setDoc(doc(db, "families/fam_a/members", userId), {
+        kind: "adult",
+        userId,
+        displayName: "Charlie",
+        admin: false,
+        removedAt: null,
+      });
+    });
+
+    const { collectionGroup, query, where, getDocs } = await import("firebase/firestore");
+    const q = query(collectionGroup(userDb, "members"), where("userId", "==", userId));
+    const snaps = await getDocs(q);
+    expect(snaps.size).toBe(1);
+    expect(snaps.docs[0].data().displayName).toBe("Charlie");
+  });
 });

@@ -62,6 +62,14 @@ service cloud.firestore {
       }
     }
 
+    // Allow users to query their own memberships across all families (collectionGroup query)
+    match /{path=**}/members/{memberId} {
+      allow read: if signedIn() && (
+        resource.data.userId == request.auth.uid ||
+        memberId == request.auth.uid
+      );
+    }
+
     match /invites/{inviteId} {
       allow read: if signedIn() && (
         isFamilyAdmin(resource.data.familyId) ||
@@ -122,16 +130,16 @@ service cloud.firestore {
     match /claims/{claimId} {
       allow get: if signedIn() && (
         resource == null || (
-          request.auth.uid != resource.data.recipientId && (
-            resource.data.claimantId == request.auth.uid ||
+          request.auth.uid != resource.data.get('recipientId', '') && (
+            resource.data.get('claimantId', '') == request.auth.uid ||
             ('familyId' in resource.data && isFamilyMember(resource.data.familyId)) ||
             !('familyId' in resource.data)
           )
         )
       );
       allow list: if signedIn() && (
-        resource.data.claimantId == request.auth.uid ||
-        (request.auth.uid != resource.data.recipientId && ('familyId' in resource.data && isFamilyMember(resource.data.familyId)))
+        resource.data.get('claimantId', '') == request.auth.uid ||
+        (request.auth.uid != resource.data.get('recipientId', '') && ('familyId' in resource.data && isFamilyMember(resource.data.familyId)))
       );
       allow create: if signedIn() &&
         'recipientId' in request.resource.data &&

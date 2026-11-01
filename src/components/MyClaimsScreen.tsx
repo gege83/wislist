@@ -3,7 +3,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { CheckCircle2, AlertCircle, Gift, ArrowLeft } from "lucide-react";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/authContext";
-import { getMyClaims, unclaimItem } from "../lib/claims";
+import { getMyClaims, unclaimItem, subscribeMyClaims } from "../lib/claims";
 import { Claim, Wish, GiftIdea } from "../types";
 
 export interface ClaimWithTarget {
@@ -28,71 +28,75 @@ export function MyClaimsScreen({ onBack }: MyClaimsScreenProps) {
     if (!user) return;
     let active = true;
 
-    const fetchClaims = async () => {
-      try {
-        const claims = await getMyClaims(user.uid);
-        const items: ClaimWithTarget[] = [];
+    setLoading(true);
+    const unsub = subscribeMyClaims(
+      user.uid,
+      async (claims) => {
+        try {
+          const items: ClaimWithTarget[] = [];
 
-        for (const claim of claims) {
-          if (claim.targetType === "wish") {
-            const snap = await getDoc(doc(db, "wishes", claim.targetId));
-            if (snap.exists()) {
-              const wishData = snap.data() as Wish;
-              items.push({
-                claim,
-                target: { ...wishData, id: snap.id },
-                targetExists: true,
-                isDeletedWish: wishData.status === "deleted",
-              });
-            } else {
-              items.push({
-                claim,
-                target: null,
-                targetExists: false,
-                isDeletedWish: false,
-              });
-            }
-          } else if (claim.targetType === "giftIdea") {
-            const snap = await getDoc(doc(db, "giftIdeas", claim.targetId));
-            if (snap.exists()) {
-              const ideaData = snap.data() as GiftIdea;
-              items.push({
-                claim,
-                target: { ...ideaData, id: snap.id },
-                targetExists: true,
-                isDeletedWish: false,
-              });
-            } else {
-              items.push({
-                claim,
-                target: null,
-                targetExists: false,
-                isDeletedWish: false,
-              });
+          for (const claim of claims) {
+            if (claim.targetType === "wish") {
+              const snap = await getDoc(doc(db, "wishes", claim.targetId));
+              if (snap.exists()) {
+                const wishData = snap.data() as Wish;
+                items.push({
+                  claim,
+                  target: { ...wishData, id: snap.id },
+                  targetExists: true,
+                  isDeletedWish: wishData.status === "deleted",
+                });
+              } else {
+                items.push({
+                  claim,
+                  target: null,
+                  targetExists: false,
+                  isDeletedWish: false,
+                });
+              }
+            } else if (claim.targetType === "giftIdea") {
+              const snap = await getDoc(doc(db, "giftIdeas", claim.targetId));
+              if (snap.exists()) {
+                const ideaData = snap.data() as GiftIdea;
+                items.push({
+                  claim,
+                  target: { ...ideaData, id: snap.id },
+                  targetExists: true,
+                  isDeletedWish: false,
+                });
+              } else {
+                items.push({
+                  claim,
+                  target: null,
+                  targetExists: false,
+                  isDeletedWish: false,
+                });
+              }
             }
           }
-        }
 
-        if (active) {
-          setClaimedItems(items);
-          setLoading(false);
-        }
-      } catch (err: unknown) {
-        if (active) {
-          if (err instanceof Error) {
-            setError(err.message);
-          } else {
-            setError("Failed to load claims.");
+          if (active) {
+            setClaimedItems(items);
+            setLoading(false);
           }
+        } catch (err: unknown) {
+          if (active) {
+            setError(err instanceof Error ? err.message : "Failed to load claims.");
+            setLoading(false);
+          }
+        }
+      },
+      (err) => {
+        if (active) {
+          setError(err.message);
           setLoading(false);
         }
       }
-    };
-
-    fetchClaims();
+    );
 
     return () => {
       active = false;
+      unsub();
     };
   }, [user]);
 

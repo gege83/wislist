@@ -192,4 +192,43 @@ describe("Gift Ideas and Claims", () => {
     const finalClaim = await getDoc(doc(bobDb, "claims/wish_wish1"));
     expect((finalClaim.data() as Claim).claimantId).toBe("bob");
   });
+
+  it("allows non-recipients to query claims for a family or recipient", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "families/fam1"), { name: "Smiths", createdBy: "alice" });
+      await setDoc(doc(db, "families/fam1/members/alice"), { kind: "adult", userId: "alice" });
+      await setDoc(doc(db, "families/fam1/members/bob"), { kind: "adult", userId: "bob" });
+      await setDoc(doc(db, "claims/wish_wish1"), {
+        targetType: "wish",
+        targetId: "wish1",
+        recipientId: "alice",
+        claimantId: "bob",
+        familyId: "fam1",
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    const bobDb = testEnv.authenticatedContext("bob").firestore();
+    const aliceDb = testEnv.authenticatedContext("alice").firestore();
+
+    const { getDocs, query, collection, where } = await import("firebase/firestore");
+
+    // Bob can query claims for recipient Alice
+    const bobRecipientQuery = query(
+      collection(bobDb, "claims"),
+      where("familyId", "==", "fam1"),
+      where("recipientId", "==", "alice")
+    );
+    const bobRecipientSnap = await getDocs(bobRecipientQuery);
+    expect(bobRecipientSnap.size).toBe(1);
+
+    // Alice CANNOT query claims for recipient Alice
+    const aliceRecipientQuery = query(
+      collection(aliceDb, "claims"),
+      where("familyId", "==", "fam1"),
+      where("recipientId", "==", "alice")
+    );
+    await expect(getDocs(aliceRecipientQuery)).rejects.toThrow();
+  });
 });

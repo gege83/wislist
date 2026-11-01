@@ -7,6 +7,7 @@ import {
   where,
   deleteDoc,
   runTransaction,
+  onSnapshot,
   type Firestore,
 } from "firebase/firestore";
 import { User } from "firebase/auth";
@@ -123,4 +124,85 @@ export async function getMyClaims(
   });
 
   return claims;
+}
+
+export function subscribeClaimsForRecipient(
+  familyId: string,
+  recipientId: string,
+  currentUserId: string,
+  onUpdate: (claims: Record<string, Claim>) => void,
+  onError?: (err: Error) => void,
+  firestoreInstance: Firestore = db
+): () => void {
+  // Surprise privacy: Never expose claims targeting the current user
+  if (recipientId === currentUserId) {
+    onUpdate({});
+    return () => {};
+  }
+
+  const q = query(
+    collection(firestoreInstance, "claims"),
+    where("familyId", "==", familyId),
+    where("recipientId", "==", recipientId)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const claimsMap: Record<string, Claim> = {};
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.recipientId !== currentUserId) {
+          claimsMap[d.id] = {
+            id: d.id,
+            targetType: data.targetType,
+            targetId: data.targetId,
+            recipientId: data.recipientId,
+            claimantId: data.claimantId,
+            familyId: data.familyId,
+            createdAt: data.createdAt,
+          };
+        }
+      });
+      onUpdate(claimsMap);
+    },
+    (err) => {
+      onError?.(err);
+    }
+  );
+}
+
+export function subscribeMyClaims(
+  userId: string,
+  onUpdate: (claims: Claim[]) => void,
+  onError?: (err: Error) => void,
+  firestoreInstance: Firestore = db
+): () => void {
+  const q = query(
+    collection(firestoreInstance, "claims"),
+    where("claimantId", "==", userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const claims: Claim[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        claims.push({
+          id: d.id,
+          targetType: data.targetType,
+          targetId: data.targetId,
+          recipientId: data.recipientId,
+          claimantId: data.claimantId,
+          familyId: data.familyId,
+          createdAt: data.createdAt,
+        });
+      });
+      onUpdate(claims);
+    },
+    (err) => {
+      onError?.(err);
+    }
+  );
 }

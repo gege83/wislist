@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

@@ -7,6 +7,8 @@ import {
   where,
   setDoc,
   updateDoc,
+  onSnapshot,
+  type Firestore,
 } from "firebase/firestore";
 import { User } from "firebase/auth";
 import { db } from "./firebase";
@@ -169,4 +171,44 @@ export async function getWishById(wishId: string): Promise<Wish | null> {
     createdAt: data.createdAt,
     deletedAt: data.deletedAt ?? null,
   };
+}
+
+export function subscribeWishesForRecipient(
+  recipientId: string,
+  familyId: string,
+  onUpdate: (wishes: Wish[]) => void,
+  onError?: (err: Error) => void,
+  firestoreInstance: Firestore = db
+): () => void {
+  const q = query(
+    collection(firestoreInstance, "wishes"),
+    where("recipientId", "==", recipientId),
+    where("familyId", "==", familyId),
+    where("status", "==", "available")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const wishes: Wish[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        wishes.push({
+          id: d.id,
+          recipientId: data.recipientId,
+          creatorId: data.creatorId,
+          title: data.title,
+          description: data.description,
+          familyId: data.familyId,
+          status: data.status,
+          createdAt: data.createdAt,
+          deletedAt: data.deletedAt ?? null,
+        });
+      });
+      onUpdate(wishes);
+    },
+    (err) => {
+      onError?.(err);
+    }
+  );
 }

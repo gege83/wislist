@@ -7,6 +7,8 @@ import {
   setDoc,
   deleteDoc,
   getDoc,
+  onSnapshot,
+  type Firestore,
 } from "firebase/firestore";
 import { User } from "firebase/auth";
 import { db } from "./firebase";
@@ -110,4 +112,51 @@ export async function deleteGiftIdea(
   }
 
   await deleteDoc(ideaRef);
+}
+
+export function subscribeGiftIdeasForRecipient(
+  recipientId: string,
+  familyId: string,
+  currentUserId: string,
+  onUpdate: (ideas: GiftIdea[]) => void,
+  onError?: (err: Error) => void,
+  firestoreInstance: Firestore = db
+): () => void {
+  // Surprise privacy: A recipient must never see or subscribe to secret gift ideas about themselves
+  if (recipientId === currentUserId) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(firestoreInstance, "giftIdeas"),
+    where("recipientId", "==", recipientId),
+    where("familyId", "==", familyId)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const ideas: GiftIdea[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (!data.deletedAt) {
+          ideas.push({
+            id: d.id,
+            recipientId: data.recipientId,
+            creatorId: data.creatorId,
+            title: data.title,
+            description: data.description,
+            familyId: data.familyId,
+            createdAt: data.createdAt,
+            deletedAt: data.deletedAt ?? null,
+          });
+        }
+      });
+      onUpdate(ideas);
+    },
+    (err) => {
+      onError?.(err);
+    }
+  );
 }

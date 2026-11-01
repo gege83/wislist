@@ -1062,3 +1062,33 @@ code {
   opacity: 1;
 }
 
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.offline-banner svg {
+  flex-shrink: 0;
+  color: #856404;
+}
+
+.claim-conflict-notice {
+  font-size: 0.78rem;
+  color: #c92a2a;
+  background: #ffe3e3;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+

@@ -13,6 +13,7 @@ import {
   Settings,
   Edit3,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import { firebaseApp } from "./lib/firebase";
 import { useAuth } from "./context/authContext";
@@ -38,9 +39,19 @@ import {
   getActiveWishesForRecipient,
   getWishesForFamilyMember,
   deleteWish,
+  subscribeWishesForRecipient,
 } from "./lib/wishes";
-import { getGiftIdeasForRecipient, deleteGiftIdea } from "./lib/giftIdeas";
-import { claimItem, unclaimItem, getClaimsForFamily } from "./lib/claims";
+import {
+  getGiftIdeasForRecipient,
+  deleteGiftIdea,
+  subscribeGiftIdeasForRecipient,
+} from "./lib/giftIdeas";
+import {
+  claimItem,
+  unclaimItem,
+  getClaimsForFamily,
+  subscribeClaimsForRecipient,
+} from "./lib/claims";
 import { Family, FamilyMember, Wish, GiftIdea, Claim, Invite } from "./types";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
@@ -134,8 +145,30 @@ export function App() {
   const [showGiftIdeaModal, setShowGiftIdeaModal] = useState(false);
   const [showFamilySettings, setShowFamilySettings] = useState(false);
 
+  // ── Network status ───────────────────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   // ── Wish claim / unclaim feedback ────────────────────────────────────────
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimConflict, setClaimConflict] = useState<{
+    targetId: string;
+    message: string;
+  } | null>(null);
 
   // ── Load family on mount / when profile changes ──────────────────────────
   const loadFamily = useCallback(
@@ -163,13 +196,6 @@ export function App() {
         const mems = await getFamilyMembers(preferred.id);
         setMembers(mems);
 
-        try {
-          const claimsMap = await getClaimsForFamily(preferred.id, user.uid);
-          setClaims(claimsMap);
-        } catch (claimsErr) {
-          console.warn("Claims load non-fatal warning:", claimsErr);
-        }
-
         // Keep or select first other member
         const others = mems.filter((m) => m.userId !== user.uid);
         if (others.length > 0) {
@@ -194,38 +220,80 @@ export function App() {
     }
   }, [user, profile, loadFamily]);
 
-  // ── Reload member wishes & hidden gift ideas ─────────────────────────────
-  const reloadMemberWishesAndIdeas = useCallback(async () => {
-    if (!family || !selectedMember || !user) return;
+  // ── Real-time member wishes, gift ideas & claims subscription ────────────
+  useEffect(() => {
+    if (!family || !selectedMember || !user) {
+      setMemberWishes([]);
+      setMemberGiftIdeas([]);
+      setClaims({});
+      return;
+    }
+
     setWishPanelLoading(true);
-    try {
-      const [wishes, ideas] = await Promise.all([
-        getWishesForFamilyMember(selectedMember.id, family.id),
-        getGiftIdeasForRecipient(selectedMember.id, family.id, user.uid),
-      ]);
-      setMemberWishes(wishes);
-      setMemberGiftIdeas(ideas);
-    } finally {
-      setWishPanelLoading(false);
-    }
-  }, [family, selectedMember, user]);
 
+    const unsubWishes = subscribeWishesForRecipient(
+      selectedMember.id,
+      family.id,
+      (wishes) => {
+        setMemberWishes(wishes);
+        setWishPanelLoading(false);
+      },
+      (err) => {
+        console.error("Wishes subscription error:", err);
+        setWishPanelLoading(false);
+      }
+    );
+
+    const unsubIdeas = subscribeGiftIdeasForRecipient(
+      selectedMember.id,
+      family.id,
+      user.uid,
+      (ideas) => {
+        setMemberGiftIdeas(ideas);
+      },
+      (err) => {
+        console.error("Gift ideas subscription error:", err);
+      }
+    );
+
+    const unsubClaims = subscribeClaimsForRecipient(
+      family.id,
+      selectedMember.id,
+      user.uid,
+      (claimsMap) => {
+        setClaims(claimsMap);
+      },
+      (err) => {
+        console.error("Claims subscription error:", err);
+      }
+    );
+
+    return () => {
+      unsubWishes();
+      unsubIdeas();
+      unsubClaims();
+    };
+  }, [family?.id, selectedMember?.id, user?.uid]);
+
+  // ── Real-time my own wishes subscription ─────────────────────────────────
   useEffect(() => {
-    void Promise.resolve().then(() => reloadMemberWishesAndIdeas());
-  }, [reloadMemberWishesAndIdeas]);
+    if (!user || !family || currentView !== "wishes") return;
 
-  // ── Reload my own wishes ─────────────────────────────────────────────────
-  const reloadMyWishes = useCallback(async () => {
-    if (!user || !family) return;
-    const wishes = await getActiveWishesForRecipient(user.uid, family.id);
-    setMyWishes(wishes);
-  }, [user, family]);
+    const unsub = subscribeWishesForRecipient(
+      user.uid,
+      family.id,
+      (wishes) => {
+        setMyWishes(wishes);
+      },
+      (err) => {
+        console.error("My wishes subscription error:", err);
+      }
+    );
 
-  useEffect(() => {
-    if (user && family && currentView === "wishes") {
-      void Promise.resolve().then(() => reloadMyWishes());
-    }
-  }, [user, family, currentView, reloadMyWishes]);
+    return () => {
+      unsub();
+    };
+  }, [user?.uid, family?.id, currentView]);
 
   // ── Load pending invites ─────────────────────────────────────────────────
   const loadPendingInvites = useCallback(async () => {
@@ -343,6 +411,7 @@ export function App() {
     if (!user || !family) return;
     const compositeId = `${targetType}_${targetId}`;
     setClaimingId(compositeId);
+    setClaimConflict(null);
     try {
       if (claims[compositeId]) {
         await unclaimItem(compositeId, user);
@@ -355,8 +424,19 @@ export function App() {
         const claim = await claimItem(targetType, targetId, recipientId, user, family.id);
         setClaims((prev) => ({ ...prev, [compositeId]: claim }));
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Claim error:", err);
+      const msg = err instanceof Error ? err.message : "";
+      const isAlreadyClaimed = msg.toLowerCase().includes("already been claimed");
+      setClaimConflict({
+        targetId,
+        message: isAlreadyClaimed
+          ? "Someone else just claimed this item!"
+          : "Could not update claim. Please try again.",
+      });
+      setTimeout(() => {
+        setClaimConflict((prev) => (prev?.targetId === targetId ? null : prev));
+      }, 5000);
     } finally {
       setClaimingId(null);
     }
@@ -366,11 +446,6 @@ export function App() {
     if (!window.confirm("Are you sure you want to delete this wish?")) return;
     try {
       await deleteWish(wishId);
-      if (currentView === "wishes") {
-        await reloadMyWishes();
-      } else {
-        await reloadMemberWishesAndIdeas();
-      }
     } catch (err) {
       console.error("Delete wish error:", err);
     }
@@ -381,7 +456,6 @@ export function App() {
     if (!window.confirm("Are you sure you want to delete this secret gift idea?")) return;
     try {
       await deleteGiftIdea(ideaId, user);
-      await reloadMemberWishesAndIdeas();
     } catch (err) {
       console.error("Delete gift idea error:", err);
     }
@@ -526,11 +600,6 @@ export function App() {
             setShowWishModal(false);
             setEditingWish(null);
             setWishModalTarget(null);
-            if (currentView === "wishes") {
-              await reloadMyWishes();
-            } else {
-              await reloadMemberWishesAndIdeas();
-            }
           }}
         />
       )}
@@ -545,7 +614,6 @@ export function App() {
           onClose={() => setShowGiftIdeaModal(false)}
           onSuccess={async () => {
             setShowGiftIdeaModal(false);
-            await reloadMemberWishesAndIdeas();
           }}
         />
       )}
@@ -673,6 +741,12 @@ export function App() {
 
       {/* ── Workspace ── */}
       <section className="workspace">
+        {!isOnline && (
+          <div className="offline-banner" role="status">
+            <WifiOff aria-hidden="true" style={{ width: 16, height: 16 }} />
+            <span>Offline - real-time updates are paused and changes will sync when reconnected.</span>
+          </div>
+        )}
         {pendingInvites.length > 0 && !dismissedBanner && currentView !== "invites" && (
           <div className="invite-alert-banner" role="status">
             <div className="invite-alert-content">
@@ -1070,6 +1144,12 @@ export function App() {
                                   </>
                                 )}
 
+                                {claimConflict?.targetId === wish.id && (
+                                  <span className="claim-conflict-notice" role="alert">
+                                    {claimConflict.message}
+                                  </span>
+                                )}
+
                                 {selectedMember.id !== user.uid && (
                                   <button
                                     className={isClaimed ? "claim claimed" : "claim"}
@@ -1164,6 +1244,12 @@ export function App() {
                                   >
                                     <Trash2 style={{ width: 13, height: 13 }} />
                                   </button>
+                                )}
+
+                                {claimConflict?.targetId === idea.id && (
+                                  <span className="claim-conflict-notice" role="alert">
+                                    {claimConflict.message}
+                                  </span>
                                 )}
 
                                 <button

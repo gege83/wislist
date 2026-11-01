@@ -29,7 +29,7 @@ An adult family member allowed to manage wishes for a managed child profile.
 _Avoid_: Parent, caretaker
 
 **Wish**:
-A gift request created by the recipient or their guardian and shared with selected families.
+A gift request created by the recipient or their guardian for a specific family.
 _Avoid_: Item, request
 
 **Gift Idea**:

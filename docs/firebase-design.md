@@ -66,9 +66,9 @@ For signed-in adults, `memberId` is the user ID. For managed child profiles, `me
 
 - `recipientId`
 - `creatorId`
+- `familyId`
 - `title`
 - `description`
-- `visibleFamilyIds`
 - `status`: `available` or `deleted`
 - `createdAt`
 - `deletedAt`

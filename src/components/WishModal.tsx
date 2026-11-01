@@ -2,14 +2,13 @@ import { useState } from "react";
 import { User } from "firebase/auth";
 import { X } from "lucide-react";
 import { createWish, updateWish } from "../lib/wishes";
-import { Family, Wish } from "../types";
+import { Wish } from "../types";
 
 interface WishModalProps {
   currentUser: User;
   recipientId: string;
   recipientName: string;
   existingWish?: Wish | null;
-  userFamilies: Family[];
   currentFamilyId: string;
   onClose: () => void;
   onSuccess: (wish: Wish) => void;
@@ -20,7 +19,6 @@ export function WishModal({
   recipientId,
   recipientName,
   existingWish,
-  userFamilies,
   currentFamilyId,
   onClose,
   onSuccess,
@@ -28,21 +26,8 @@ export function WishModal({
   const isEditing = !!existingWish;
   const [title, setTitle] = useState(existingWish?.title ?? "");
   const [description, setDescription] = useState(existingWish?.description ?? "");
-  const [visibleFamilies, setVisibleFamilies] = useState<string[]>(
-    existingWish?.visibleFamilyIds && existingWish.visibleFamilyIds.length > 0
-      ? existingWish.visibleFamilyIds
-      : userFamilies.length > 0
-      ? userFamilies.map((f) => f.id)
-      : [currentFamilyId]
-  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const toggleFamily = (famId: string) => {
-    setVisibleFamilies((prev) =>
-      prev.includes(famId) ? prev.filter((id) => id !== famId) : [...prev, famId]
-    );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,8 +35,8 @@ export function WishModal({
       setError("Please enter a wish title.");
       return;
     }
-    if (visibleFamilies.length === 0) {
-      setError("Select at least one family that can see this wish.");
+    if (!isEditing && !currentFamilyId) {
+      setError("No active family selected.");
       return;
     }
 
@@ -63,13 +48,11 @@ export function WishModal({
         await updateWish(existingWish.id, {
           title: title.trim(),
           description: description.trim(),
-          visibleFamilyIds: visibleFamilies,
         });
         onSuccess({
           ...existingWish,
           title: title.trim(),
           description: description.trim(),
-          visibleFamilyIds: visibleFamilies,
         });
       } else {
         const newWish = await createWish(
@@ -77,7 +60,7 @@ export function WishModal({
             recipientId,
             title: title.trim(),
             description: description.trim(),
-            visibleFamilyIds: visibleFamilies,
+            familyId: currentFamilyId,
           },
           currentUser
         );
@@ -157,37 +140,10 @@ export function WishModal({
             />
           </div>
 
-          {userFamilies.length > 1 && (
-            <div className="form-group">
-              <label>Visible to families</label>
-              <div style={{ display: "grid", gap: "8px", marginTop: "4px" }}>
-                {userFamilies.map((fam) => (
-                  <label
-                    key={fam.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      cursor: "pointer",
-                      fontSize: "0.95rem",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={visibleFamilies.includes(fam.id)}
-                      onChange={() => toggleFamily(fam.id)}
-                    />
-                    <span>{fam.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
           <button
             type="submit"
             className="auth-submit-btn"
-            disabled={saving || !title.trim() || visibleFamilies.length === 0}
+            disabled={saving || !title.trim()}
           >
             {saving ? "Saving…" : isEditing ? "Save changes" : "Add wish"}
           </button>

@@ -102,7 +102,7 @@ describe("Gift Ideas and Claims", () => {
         recipientId: "alice",
         creatorId: "alice",
         title: "Camera",
-        visibleFamilyIds: ["fam1"],
+        familyId: "fam1",
         status: "available",
       });
     });
@@ -154,7 +154,7 @@ describe("Gift Ideas and Claims", () => {
         recipientId: "alice",
         creatorId: "alice",
         title: "Book",
-        visibleFamilyIds: ["fam1"],
+        familyId: "fam1",
         status: "available",
       });
     });

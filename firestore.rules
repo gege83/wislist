@@ -30,13 +30,6 @@ service cloud.firestore {
         request.auth.uid in get(childPath).data.get('guardianIds', []);
     }
 
-    function isMemberOfAnyFamily(familyIds) {
-      return (familyIds != null && familyIds.size() > 0 && isFamilyMember(familyIds[0])) ||
-             (familyIds != null && familyIds.size() > 1 && isFamilyMember(familyIds[1])) ||
-             (familyIds != null && familyIds.size() > 2 && isFamilyMember(familyIds[2])) ||
-             (familyIds != null && familyIds.size() > 3 && isFamilyMember(familyIds[3]));
-    }
-
     match /users/{userId} {
       allow read, create, update: if isSelf(userId);
       allow delete: if false;
@@ -74,16 +67,18 @@ service cloud.firestore {
       // Family admins or the invited user (matched by normalized email) can read, list, and update invites
       allow read, list: if signedIn() && (
         resource != null && (
-          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email) ||
-          resource.data.createdBy == request.auth.uid
+          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower()) ||
+          resource.data.createdBy == request.auth.uid ||
+          isFamilyAdmin(resource.data.familyId)
         )
         ||
-        resource == null && request.auth.token.email != null
+        (resource == null && request.auth.token.email != null)
       );
       allow create: if signedIn() && isFamilyAdmin(request.resource.data.familyId);
       allow update: if signedIn() && (
         resource != null && (
-          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email)
+          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower()) ||
+          isFamilyAdmin(resource.data.familyId)
         )
       );
       allow delete: if false;
@@ -92,24 +87,23 @@ service cloud.firestore {
     match /wishes/{wishId} {
       allow read: if signedIn() && (
         resource == null ||
-        resource.data.recipientId == request.auth.uid ||
-        resource.data.creatorId == request.auth.uid ||
-        ('familyId' in resource.data && isFamilyMember(resource.data.familyId)) ||
-        ('visibleFamilyIds' in resource.data && isMemberOfAnyFamily(resource.data.visibleFamilyIds))
+        isFamilyMember(resource.data.familyId)
       );
-      allow create: if signedIn() && (
-        request.resource.data.creatorId == request.auth.uid && (
+      allow create: if signedIn() &&
+        request.resource.data.creatorId == request.auth.uid &&
+        isFamilyMember(request.resource.data.familyId) &&
+        (
           request.resource.data.recipientId == request.auth.uid ||
-          ('familyId' in request.resource.data && isGuardian(request.resource.data.familyId, request.resource.data.recipientId)) ||
-          ('visibleFamilyIds' in request.resource.data && request.resource.data.visibleFamilyIds.size() > 0 && isGuardian(request.resource.data.visibleFamilyIds[0], request.resource.data.recipientId))
-        )
-      );
-      allow update: if signedIn() && (
-        resource.data.creatorId == request.auth.uid ||
-        resource.data.recipientId == request.auth.uid ||
-        ('familyId' in resource.data && isGuardian(resource.data.familyId, resource.data.recipientId)) ||
-        ('visibleFamilyIds' in resource.data && resource.data.visibleFamilyIds.size() > 0 && isGuardian(resource.data.visibleFamilyIds[0], resource.data.recipientId))
-      );
+          isGuardian(request.resource.data.familyId, request.resource.data.recipientId)
+        );
+      allow update: if signedIn() &&
+        isFamilyMember(resource.data.familyId) &&
+        request.resource.data.familyId == resource.data.familyId &&
+        (
+          resource.data.creatorId == request.auth.uid ||
+          resource.data.recipientId == request.auth.uid ||
+          isGuardian(resource.data.familyId, resource.data.recipientId)
+        );
       allow delete: if false;
     }
 

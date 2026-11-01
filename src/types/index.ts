@@ -48,9 +48,9 @@ export interface Wish {
   id: string;
   recipientId: string;
   creatorId: string;
+  familyId: string;
   title: string;
   description?: string;
-  visibleFamilyIds: string[];
   status: "available" | "deleted";
   createdAt: string;
   deletedAt?: string | null;

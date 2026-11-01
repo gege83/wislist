@@ -216,16 +216,16 @@ export function App() {
 
   // ── Reload my own wishes ─────────────────────────────────────────────────
   const reloadMyWishes = useCallback(async () => {
-    if (!user) return;
-    const wishes = await getActiveWishesForRecipient(user.uid);
+    if (!user || !family) return;
+    const wishes = await getActiveWishesForRecipient(user.uid, family.id);
     setMyWishes(wishes);
-  }, [user]);
+  }, [user, family]);
 
   useEffect(() => {
-    if (user && currentView === "wishes") {
+    if (user && family && currentView === "wishes") {
       void Promise.resolve().then(() => reloadMyWishes());
     }
-  }, [user, currentView, reloadMyWishes]);
+  }, [user, family, currentView, reloadMyWishes]);
 
   // ── Load pending invites ─────────────────────────────────────────────────
   const loadPendingInvites = useCallback(async () => {
@@ -516,7 +516,6 @@ export function App() {
           recipientId={wishModalTarget.recipientId}
           recipientName={wishModalTarget.recipientName}
           existingWish={editingWish}
-          userFamilies={allUserFamilies}
           currentFamilyId={family?.id ?? ""}
           onClose={() => {
             setShowWishModal(false);
@@ -714,7 +713,11 @@ export function App() {
               onReject={handleRejectInvite}
               onBack={() => setCurrentView("family")}
             />
-            {/* Sent invites table */}
+
+            {/*
+            Sent invites table
+            TODO: move to a different component and add pagination if needed
+            */}
             <section className="sent-invites-section" style={{ marginTop: "24px" }}>
               <h2 style={{ color: "#fff", marginBottom: "12px" }}>Invites You Sent</h2>
               {sentInvites.length === 0 ? (
@@ -745,7 +748,8 @@ export function App() {
                       const copyLink = async () => {
                         const link = `${window.location.origin}/invite/${inv.id}`;
                         await navigator.clipboard.writeText(link);
-                        setActionSuccess(`Link copied for ${inv.email}`);
+                        //TODO: fix this
+                        // setActionSuccess(`Link copied for ${inv.email}`);
                       };
                       return (
                         <tr key={inv.id} style={{ borderBottom: "1px solid #2d4538" }}>

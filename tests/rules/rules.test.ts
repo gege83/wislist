@@ -169,13 +169,13 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         userId: "stranger",
       });
 
-      // Wish visible to fam1
+      // Wish belonging to fam1
       await setDoc(doc(db, "wishes/wish1"), {
         recipientId: "alice",
         creatorId: "alice",
         title: "Bicycle",
-        visibleFamilyIds: ["fam1"],
         status: "available",
+        familyId: "fam1",
       });
 
       // Gift idea in fam1
@@ -275,7 +275,7 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         recipientId: "alice",
         creatorId: "alice",
         title: "Headphones",
-        visibleFamilyIds: ["fam1"],
+        familyId: "fam1",
         status: "available",
       });
     });
@@ -332,6 +332,67 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         claimantId: "charlie",
         familyId: "fam1",
         createdAt: new Date().toISOString(),
+      })
+    );
+  });
+
+  it("enforces single family access and immutability on wishes", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "families/fam1"), { name: "Smith", createdBy: "alice" });
+      await setDoc(doc(db, "families/fam1/members/alice"), { kind: "adult", userId: "alice" });
+      await setDoc(doc(db, "families/fam1/members/bob"), { kind: "adult", userId: "bob" });
+      await setDoc(doc(db, "families/fam1/members/exmember"), {
+        kind: "adult",
+        userId: "exmember",
+        removedAt: new Date().toISOString(),
+      });
+      await setDoc(doc(db, "families/fam2"), { name: "Jones", createdBy: "stranger" });
+      await setDoc(doc(db, "families/fam2/members/stranger"), { kind: "adult", userId: "stranger" });
+      await setDoc(doc(db, "wishes/wish1"), {
+        recipientId: "alice",
+        creatorId: "alice",
+        title: "Book",
+        familyId: "fam1",
+        status: "available",
+      });
+    });
+
+    const aliceDb = testEnv.authenticatedContext("alice").firestore();
+    const bobDb = testEnv.authenticatedContext("bob").firestore();
+    const exDb = testEnv.authenticatedContext("exmember").firestore();
+    const strangerDb = testEnv.authenticatedContext("stranger").firestore();
+
+    // Alice and Bob can read
+    await assertSucceeds(getDoc(doc(aliceDb, "wishes/wish1")));
+    await assertSucceeds(getDoc(doc(bobDb, "wishes/wish1")));
+
+    // Ex-member and stranger cannot read
+    await assertFails(getDoc(doc(exDb, "wishes/wish1")));
+    await assertFails(getDoc(doc(strangerDb, "wishes/wish1")));
+
+    // Stranger cannot create wish in fam1
+    await assertFails(
+      setDoc(doc(strangerDb, "wishes/wish2"), {
+        recipientId: "stranger",
+        creatorId: "stranger",
+        title: "Sneakers",
+        familyId: "fam1",
+        status: "available",
+      })
+    );
+
+    // Alice cannot change familyId to fam2
+    await assertFails(
+      updateDoc(doc(aliceDb, "wishes/wish1"), {
+        familyId: "fam2",
+      })
+    );
+
+    // Alice can update title
+    await assertSucceeds(
+      updateDoc(doc(aliceDb, "wishes/wish1"), {
+        title: "Cookbook",
       })
     );
   });

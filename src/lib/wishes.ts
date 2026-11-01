@@ -16,7 +16,7 @@ export interface CreateWishInput {
   recipientId: string;
   title: string;
   description?: string;
-  visibleFamilyIds: string[];
+  familyId: string;
 }
 
 export async function createWish(
@@ -31,8 +31,8 @@ export async function createWish(
     throw new Error("Wish title is required.");
   }
 
-  if (input.visibleFamilyIds.length === 0) {
-    throw new Error("Wish must be visible to at least one family.");
+  if (!input.familyId?.trim()) {
+    throw new Error("Wish must belong to a family.");
   }
 
   const wishData: Wish = {
@@ -41,7 +41,7 @@ export async function createWish(
     creatorId: currentUser.uid,
     title: input.title.trim(),
     description: input.description?.trim() || "",
-    visibleFamilyIds: input.visibleFamilyIds,
+    familyId: input.familyId.trim(),
     status: "available",
     createdAt: now,
     deletedAt: null,
@@ -52,7 +52,7 @@ export async function createWish(
     creatorId: wishData.creatorId,
     title: wishData.title,
     description: wishData.description,
-    visibleFamilyIds: wishData.visibleFamilyIds,
+    familyId: wishData.familyId,
     status: wishData.status,
     createdAt: wishData.createdAt,
     deletedAt: null,
@@ -63,7 +63,7 @@ export async function createWish(
 
 export async function updateWish(
   wishId: string,
-  updates: Partial<Pick<Wish, "title" | "description" | "visibleFamilyIds">>
+  updates: Partial<Pick<Wish, "title" | "description">>
 ): Promise<void> {
   const wishRef = doc(db, "wishes", wishId);
   const patch: Record<string, unknown> = {};
@@ -77,13 +77,6 @@ export async function updateWish(
 
   if (updates.description !== undefined) {
     patch.description = updates.description.trim();
-  }
-
-  if (updates.visibleFamilyIds !== undefined) {
-    if (updates.visibleFamilyIds.length === 0) {
-      throw new Error("Wish must be visible to at least one family.");
-    }
-    patch.visibleFamilyIds = updates.visibleFamilyIds;
   }
 
   await updateDoc(wishRef, patch);
@@ -104,37 +97,7 @@ export async function getWishesForFamilyMember(
   const q = query(
     collection(db, "wishes"),
     where("recipientId", "==", recipientId),
-    where("status", "==", "available"),
-    where("visibleFamilyIds", "array-contains", familyId)
-  );
-
-  const snap = await getDocs(q);
-  const wishes: Wish[] = [];
-
-  snap.forEach((d) => {
-    const data = d.data();
-    wishes.push({
-      id: d.id,
-      recipientId: data.recipientId,
-      creatorId: data.creatorId,
-      title: data.title,
-      description: data.description,
-      visibleFamilyIds: data.visibleFamilyIds,
-      status: data.status,
-      createdAt: data.createdAt,
-      deletedAt: data.deletedAt ?? null,
-    });
-  });
-
-  return wishes;
-}
-
-export async function getActiveWishesForRecipient(
-  recipientId: string
-): Promise<Wish[]> {
-  const q = query(
-    collection(db, "wishes"),
-    where("recipientId", "==", recipientId),
+    where("familyId", "==", familyId),
     where("status", "==", "available")
   );
 
@@ -149,7 +112,39 @@ export async function getActiveWishesForRecipient(
       creatorId: data.creatorId,
       title: data.title,
       description: data.description,
-      visibleFamilyIds: data.visibleFamilyIds,
+      familyId: data.familyId,
+      status: data.status,
+      createdAt: data.createdAt,
+      deletedAt: data.deletedAt ?? null,
+    });
+  });
+
+  return wishes;
+}
+
+export async function getActiveWishesForRecipient(
+  recipientId: string,
+  familyId: string
+): Promise<Wish[]> {
+  const q = query(
+    collection(db, "wishes"),
+    where("recipientId", "==", recipientId),
+    where("familyId", "==", familyId),
+    where("status", "==", "available")
+  );
+
+  const snap = await getDocs(q);
+  const wishes: Wish[] = [];
+
+  snap.forEach((d) => {
+    const data = d.data();
+    wishes.push({
+      id: d.id,
+      recipientId: data.recipientId,
+      creatorId: data.creatorId,
+      title: data.title,
+      description: data.description,
+      familyId: data.familyId,
       status: data.status,
       createdAt: data.createdAt,
       deletedAt: data.deletedAt ?? null,
@@ -169,7 +164,7 @@ export async function getWishById(wishId: string): Promise<Wish | null> {
     creatorId: data.creatorId,
     title: data.title,
     description: data.description,
-    visibleFamilyIds: data.visibleFamilyIds,
+    familyId: data.familyId,
     status: data.status,
     createdAt: data.createdAt,
     deletedAt: data.deletedAt ?? null,

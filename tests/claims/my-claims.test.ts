@@ -61,7 +61,7 @@ describe("My Claims Screen", () => {
         recipientId: "alice",
         creatorId: "alice",
         title: "Espresso Maker",
-        visibleFamilyIds: ["fam1"],
+        familyId: "fam1",
         status: "available",
       });
       await setDoc(doc(db, "claims/wish_wish1"), {
@@ -131,7 +131,7 @@ describe("My Claims Screen", () => {
         recipientId: "alice",
         creatorId: "alice",
         title: "Vintage Watch",
-        visibleFamilyIds: ["fam1"],
+        familyId: "fam1",
         status: "deleted",
         deletedAt: new Date().toISOString(),
       });

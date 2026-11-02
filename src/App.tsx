@@ -793,9 +793,9 @@ export function App() {
             TODO: move to a different component and add pagination if needed
             */}
             <section className="sent-invites-section" style={{ marginTop: "24px" }}>
-              <h2 style={{ color: "#fff", marginBottom: "12px" }}>Invites You Sent</h2>
+              <h2 style={{ marginBottom: "12px" }}>Invites You Sent</h2>
               {sentInvites.length === 0 ? (
-                <p style={{ color: "#8fa397" }}>You have not sent any invitations.</p>
+                <p className="sent-invites-empty">You have not sent any invitations.</p>
               ) : (
                 <table className="sent-invites-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
@@ -827,10 +827,10 @@ export function App() {
                       };
                       return (
                         <tr key={inv.id} style={{ borderBottom: "1px solid #2d4538" }}>
-                          <td style={{ padding: "8px", color: "#fff" }}>{inv.email}</td>
-                          <td style={{ padding: "8px", color: "#fff" }}>{inv.familyName || "(none)"}</td>
-                          <td style={{ padding: "8px", color: "#fff" }}>{status}</td>
-                          <td style={{ padding: "8px", color: "#fff" }}>{expiry}</td>
+                          <td style={{ padding: "8px" }}>{inv.email}</td>
+                          <td style={{ padding: "8px" }}>{inv.familyName || "(none)"}</td>
+                          <td style={{ padding: "8px" }}>{status}</td>
+                          <td style={{ padding: "8px" }}>{expiry}</td>
                           <td style={{ padding: "8px" }}>
                             <button
                               type="button"

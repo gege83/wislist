@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "christmas-wishlist-prod"
-  }
+    "default": "wishlist-e9f11",
+    "wishlist": "wishlist-e9f11"
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -8,6 +8,8 @@ import {
   setDoc,
   updateDoc,
   collectionGroup,
+  runTransaction,
+  type Firestore,
 } from "firebase/firestore";
 import { User } from "firebase/auth";
 import { db } from "./firebase";
@@ -261,59 +263,70 @@ export async function rejectInvite(
 export async function acceptInvite(
   inviteId: string,
   user: User,
-  profile: UserProfile
+  profile: UserProfile,
+  firestoreInstance: Firestore = db
 ): Promise<string> {
-  const inviteRef = doc(db, "invites", inviteId);
-  const inviteSnap = await getDoc(inviteRef);
+  const inviteRef = doc(firestoreInstance, "invites", inviteId);
 
-  if (!inviteSnap.exists()) {
-    throw new Error("Invite not found");
-  }
+  return await runTransaction(firestoreInstance, async (transaction) => {
+    const inviteSnap = await transaction.get(inviteRef);
+    if (!inviteSnap.exists()) {
+      throw new Error("Invite not found");
+    }
 
-  const invite = inviteSnap.data() as Invite;
-  const userNormalized = normalizeEmail(user.email || "");
+    const invite = inviteSnap.data() as Invite;
+    const userNormalized = normalizeEmail(user.email || "");
 
-  if (invite.normalizedEmail !== userNormalized) {
-    throw new Error("This invite was sent to a different email address.");
-  }
+    if (invite.normalizedEmail !== userNormalized) {
+      throw new Error("This invite was sent to a different email address.");
+    }
 
-  if (invite.acceptedAt) {
-    throw new Error("This invite has already been accepted.");
-  }
+    if (invite.acceptedAt) {
+      throw new Error("This invite has already been accepted.");
+    }
 
-  if (invite.revokedAt) {
-    throw new Error("This invite has been revoked.");
-  }
+    if (invite.revokedAt) {
+      throw new Error("This invite has been revoked.");
+    }
 
-  if (new Date(invite.expiresAt) <= new Date()) {
-    throw new Error("This invite has expired.");
-  }
+    if (invite.rejectedAt) {
+      throw new Error("This invite has already been rejected.");
+    }
 
-  const now = new Date().toISOString();
+    if (new Date(invite.expiresAt) <= new Date()) {
+      throw new Error("This invite has expired.");
+    }
 
-  // Mark invite as accepted
-  await updateDoc(inviteRef, {
-    acceptedAt: now,
-    acceptedBy: user.uid,
+    const memberRef = doc(
+      firestoreInstance,
+      `families/${invite.familyId}/members`,
+      user.uid
+    );
+    const memberSnap = await transaction.get(memberRef);
+    if (memberSnap.exists() && !memberSnap.data().removedAt) {
+      throw new Error("You are already a member of this family.");
+    }
+
+    const now = new Date().toISOString();
+    transaction.update(inviteRef, {
+      acceptedAt: now,
+      acceptedBy: user.uid,
+    });
+    transaction.set(memberRef, {
+      kind: "adult",
+      displayName: profile.displayName || user.displayName || "Family Member",
+      userId: user.uid,
+      admin: false,
+      createdAt: now,
+      createdBy: user.uid,
+      removedAt: null,
+    });
+    transaction.update(doc(firestoreInstance, "users", user.uid), {
+      lastSelectedFamilyId: invite.familyId,
+    });
+
+    return invite.familyId;
   });
-
-  // Add user as member to the family
-  const memberRef = doc(db, `families/${invite.familyId}/members`, user.uid);
-  await setDoc(memberRef, {
-    kind: "adult",
-    displayName: profile.displayName || user.displayName || "Family Member",
-    userId: user.uid,
-    admin: false,
-    createdAt: now,
-    createdBy: user.uid,
-    removedAt: null,
-  });
-
-  await updateUserProfile(user.uid, {
-    lastSelectedFamilyId: invite.familyId,
-  });
-
-  return invite.familyId;
 }
 
 export async function softDeleteFamily(

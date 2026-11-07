@@ -36,23 +36,20 @@ import {
   createManagedChildProfile,
 } from "./lib/families";
 import {
-  getActiveWishesForRecipient,
-  getWishesForFamilyMember,
   deleteWish,
   subscribeWishesForRecipient,
 } from "./lib/wishes";
 import {
-  getGiftIdeasForRecipient,
   deleteGiftIdea,
   subscribeGiftIdeasForRecipient,
 } from "./lib/giftIdeas";
 import {
   claimItem,
   unclaimItem,
-  getClaimsForFamily,
   subscribeClaimsForRecipient,
 } from "./lib/claims";
 import { Family, FamilyMember, Wish, GiftIdea, Claim, Invite } from "./types";
+import { acceptInviteAndRefresh, refreshInviteLists } from "./lib/inviteRefresh";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
 
@@ -372,9 +369,11 @@ export function App() {
       createdAt: new Date().toISOString(),
       lastSelectedFamilyId: null,
     };
-    const joinedFamilyId = await acceptInvite(inv.id, user, resolvedProfile);
+    const joinedFamilyId = await acceptInviteAndRefresh(
+      () => acceptInvite(inv.id, user, resolvedProfile),
+      () => refreshInviteLists(loadPendingInvites, loadSentInvites)
+    );
     try { await refreshProfile(); } catch { /* non-fatal */ }
-    await loadPendingInvites();
     await loadFamily(joinedFamilyId);
     setCurrentView("family");
   };
@@ -793,7 +792,18 @@ export function App() {
             TODO: move to a different component and add pagination if needed
             */}
             <section className="sent-invites-section" style={{ marginTop: "24px" }}>
-              <h2 style={{ marginBottom: "12px" }}>Invites You Sent</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                <h2 style={{ margin: 0 }}>Invites You Sent</h2>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ fontSize: "0.85rem", padding: "4px 8px" }}
+                  onClick={() => void refreshInviteLists(loadPendingInvites, loadSentInvites)}
+                  disabled={loadingInvites}
+                >
+                  {loadingInvites ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
               {sentInvites.length === 0 ? (
                 <p className="sent-invites-empty">You have not sent any invitations.</p>
               ) : (

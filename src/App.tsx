@@ -112,7 +112,7 @@ export function App() {
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [memberWishes, setMemberWishes] = useState<Wish[]>([]);
   const [memberGiftIdeas, setMemberGiftIdeas] = useState<GiftIdea[]>([]);
-  const [wishPanelLoading, setWishPanelLoading] = useState(false);
+  const [loadedMemberId, setLoadedMemberId] = useState<string | null>(null);
 
   // ── Claims map ───────────────────────────────────────────────────────────
   const [claims, setClaims] = useState<Record<string, Claim>>({});
@@ -217,34 +217,34 @@ export function App() {
     }
   }, [user, profile, loadFamily]);
 
+  const familyId = family?.id;
+  const selectedMemberId = selectedMember?.id;
+  const userId = user?.uid;
+  const wishPanelLoading = Boolean(selectedMember && loadedMemberId !== selectedMember.id);
+
   // ── Real-time member wishes, gift ideas & claims subscription ────────────
   useEffect(() => {
-    if (!family || !selectedMember || !user) {
-      setMemberWishes([]);
-      setMemberGiftIdeas([]);
-      setClaims({});
+    if (!familyId || !selectedMemberId || !userId) {
       return;
     }
 
-    setWishPanelLoading(true);
-
     const unsubWishes = subscribeWishesForRecipient(
-      selectedMember.id,
-      family.id,
+      selectedMemberId,
+      familyId,
       (wishes) => {
         setMemberWishes(wishes);
-        setWishPanelLoading(false);
+        setLoadedMemberId(selectedMemberId);
       },
       (err) => {
         console.error("Wishes subscription error:", err);
-        setWishPanelLoading(false);
+        setLoadedMemberId(selectedMemberId);
       }
     );
 
     const unsubIdeas = subscribeGiftIdeasForRecipient(
-      selectedMember.id,
-      family.id,
-      user.uid,
+      selectedMemberId,
+      familyId,
+      userId,
       (ideas) => {
         setMemberGiftIdeas(ideas);
       },
@@ -254,9 +254,9 @@ export function App() {
     );
 
     const unsubClaims = subscribeClaimsForRecipient(
-      family.id,
-      selectedMember.id,
-      user.uid,
+      familyId,
+      selectedMemberId,
+      userId,
       (claimsMap) => {
         setClaims(claimsMap);
       },
@@ -270,15 +270,15 @@ export function App() {
       unsubIdeas();
       unsubClaims();
     };
-  }, [family?.id, selectedMember?.id, user?.uid]);
+  }, [familyId, selectedMemberId, userId]);
 
   // ── Real-time my own wishes subscription ─────────────────────────────────
   useEffect(() => {
-    if (!user || !family || currentView !== "wishes") return;
+    if (!userId || !familyId || currentView !== "wishes") return;
 
     const unsub = subscribeWishesForRecipient(
-      user.uid,
-      family.id,
+      userId,
+      familyId,
       (wishes) => {
         setMyWishes(wishes);
       },
@@ -290,7 +290,7 @@ export function App() {
     return () => {
       unsub();
     };
-  }, [user?.uid, family?.id, currentView]);
+  }, [userId, familyId, currentView]);
 
   // ── Load pending invites ─────────────────────────────────────────────────
   const loadPendingInvites = useCallback(async () => {
@@ -318,12 +318,14 @@ export function App() {
     } finally {
       setLoadingInvites(false);
     }
-  }, [user?.uid]);
+  }, [user]);
 
   useEffect(() => {
-    void loadPendingInvites();
-    void loadSentInvites();
-  }, [user, profile?.email, loadPendingInvites, loadSentInvites]);
+    void Promise.resolve().then(() => {
+      void loadPendingInvites();
+      void loadSentInvites();
+    });
+  }, [loadPendingInvites, loadSentInvites]);
 
   // ── Derived metrics ──────────────────────────────────────────────────────
   const totalWishes = memberWishes.length + memberGiftIdeas.length;

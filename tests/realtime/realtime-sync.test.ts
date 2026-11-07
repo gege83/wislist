@@ -3,7 +3,7 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc, deleteDoc, type Firestore } from "firebase/firestore";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { subscribeWishesForRecipient } from "../../src/lib/wishes";
@@ -61,7 +61,7 @@ describe("Real-time Synchronization", () => {
         receivedWishes.push(wishes);
       },
       undefined,
-      bobDb as any
+      bobDb as unknown as Firestore
     );
 
     // Initial snapshot should be empty
@@ -131,7 +131,7 @@ describe("Real-time Synchronization", () => {
         aliceReceived.push(ideas);
       },
       undefined,
-      aliceDb as any
+      aliceDb as unknown as Firestore
     );
     expect(aliceReceived).toEqual([[]]);
     aliceUnsub();
@@ -146,7 +146,7 @@ describe("Real-time Synchronization", () => {
         charlieReceived.push(ideas);
       },
       undefined,
-      charlieDb as any
+      charlieDb as unknown as Firestore
     );
 
     await expect.poll(() => charlieReceived.length).toBeGreaterThanOrEqual(1);
@@ -208,7 +208,7 @@ describe("Real-time Synchronization", () => {
         aliceClaims.push(claims);
       },
       undefined,
-      aliceDb as any
+      aliceDb as unknown as Firestore
     );
     expect(aliceClaims).toEqual([{}]);
     aliceUnsub();
@@ -223,7 +223,7 @@ describe("Real-time Synchronization", () => {
         charlieClaims.push(claims);
       },
       undefined,
-      charlieDb as any
+      charlieDb as unknown as Firestore
     );
 
     // Bob also tracks his own claims
@@ -234,7 +234,7 @@ describe("Real-time Synchronization", () => {
         bobMyClaims.push(claims);
       },
       undefined,
-      bobDb as any
+      bobDb as unknown as Firestore
     );
 
     await expect.poll(() => charlieClaims.length).toBeGreaterThanOrEqual(1);

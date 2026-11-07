@@ -3,7 +3,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { CheckCircle2, AlertCircle, Gift, ArrowLeft } from "lucide-react";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/authContext";
-import { getMyClaims, unclaimItem, subscribeMyClaims } from "../lib/claims";
+import { unclaimItem, subscribeMyClaims } from "../lib/claims";
 import { Claim, Wish, GiftIdea } from "../types";
 
 export interface ClaimWithTarget {
@@ -28,7 +28,6 @@ export function MyClaimsScreen({ onBack }: MyClaimsScreenProps) {
     if (!user) return;
     let active = true;
 
-    setLoading(true);
     const unsub = subscribeMyClaims(
       user.uid,
       async (claims) => {

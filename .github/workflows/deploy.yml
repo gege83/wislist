@@ -21,7 +21,9 @@ jobs:
       - run: npm run lint
       - run: npx firebase-tools emulators:exec --only firestore --project wishlist-e9f11 "npm test"
       - run: npm run build
-      - run: npx firebase-tools deploy --only hosting --project "$FIREBASE_PROJECT_ID"
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_WISHLIST_E9F11 }}
+          channelId: live
+          projectId: wishlist-e9f11

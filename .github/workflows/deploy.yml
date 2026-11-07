@@ -13,9 +13,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - run: npx firebase-tools emulators:exec --only firestore --project wishlist-e9f11 "npm test"
       - run: npm run build
       - run: npx firebase-tools deploy --only hosting --project "$FIREBASE_PROJECT_ID"
         env:

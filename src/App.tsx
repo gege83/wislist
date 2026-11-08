@@ -26,8 +26,6 @@ import { WishModal } from "./components/WishModal";
 import { GiftIdeaModal } from "./components/GiftIdeaModal";
 import { FamilySettingsModal } from "./components/FamilySettingsModal";
 import {
-  getUserFamilies,
-  getFamilyMembers,
   createInvite,
   acceptInvite,
   rejectInvite,
@@ -35,21 +33,15 @@ import {
   getSentInvitesForUser,
   createManagedChildProfile,
 } from "./lib/families";
+import { deleteWish, subscribeWishesForRecipient } from "./lib/wishes";
+import { deleteGiftIdea } from "./lib/giftIdeas";
+import { claimItem, unclaimItem } from "./lib/claims";
+import { Wish, Invite } from "./types";
 import {
-  deleteWish,
-  subscribeWishesForRecipient,
-} from "./lib/wishes";
-import {
-  deleteGiftIdea,
-  subscribeGiftIdeasForRecipient,
-} from "./lib/giftIdeas";
-import {
-  claimItem,
-  unclaimItem,
-  subscribeClaimsForRecipient,
-} from "./lib/claims";
-import { Family, FamilyMember, Wish, GiftIdea, Claim, Invite } from "./types";
-import { acceptInviteAndRefresh, refreshInviteLists } from "./lib/inviteRefresh";
+  acceptInviteAndRefresh,
+  refreshInviteLists,
+} from "./lib/inviteRefresh";
+import { useFamilyWorkspace } from "./lib/familyWorkspace";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
 
@@ -92,15 +84,32 @@ function Modal({
 
 export function App() {
   const { user, profile, loading, signOut, refreshProfile } = useAuth();
-  const [currentView, setCurrentView] = useState<"family" | "wishes" | "claims" | "invites">("family");
+  const [currentView, setCurrentView] = useState<
+    "family" | "wishes" | "claims" | "invites"
+  >("family");
   const projectId = firebaseApp.options.projectId ?? "local emulator";
 
   // ── Family data ──────────────────────────────────────────────────────────
-  const [allUserFamilies, setAllUserFamilies] = useState<Family[]>([]);
-  const [family, setFamily] = useState<Family | null>(null);
-  const [members, setMembers] = useState<FamilyMember[]>([]);
-  const [familyLoading, setFamilyLoading] = useState(true);
-  const [familyError, setFamilyError] = useState<string | null>(null);
+  const workspace = useFamilyWorkspace(user, profile);
+  const {
+    families: allUserFamilies,
+    family,
+    members,
+    selectedMember,
+    wishes: memberWishes,
+    giftIdeas: memberGiftIdeas,
+    claims,
+    loading: familyLoading,
+    error: familyError,
+    dataLoading,
+    dataError,
+    selectFamily,
+    selectMember,
+    refresh: loadFamily,
+    refreshMembers,
+    addMember,
+    updateClaims,
+  } = workspace;
 
   // ── Pending invites ───────────────────────────────────────────────────────
   const [pendingInvites, setPendingInvites] = useState<Invite[]>([]);
@@ -109,14 +118,6 @@ export function App() {
   const [dismissedBanner, setDismissedBanner] = useState(false);
 
   // ── Selected member for wish / gift-idea panel ───────────────────────────
-  const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
-  const [memberWishes, setMemberWishes] = useState<Wish[]>([]);
-  const [memberGiftIdeas, setMemberGiftIdeas] = useState<GiftIdea[]>([]);
-  const [loadedMemberId, setLoadedMemberId] = useState<string | null>(null);
-
-  // ── Claims map ───────────────────────────────────────────────────────────
-  const [claims, setClaims] = useState<Record<string, Claim>>({});
-
   // ── My own wishes (for "My wishes" nav tab) ──────────────────────────────
   const [myWishes, setMyWishes] = useState<Wish[]>([]);
 
@@ -144,7 +145,7 @@ export function App() {
 
   // ── Network status ───────────────────────────────────────────────────────
   const [isOnline, setIsOnline] = useState(
-    typeof navigator !== "undefined" ? navigator.onLine : true
+    typeof navigator !== "undefined" ? navigator.onLine : true,
   );
 
   useEffect(() => {
@@ -168,109 +169,9 @@ export function App() {
   } | null>(null);
 
   // ── Load family on mount / when profile changes ──────────────────────────
-  const loadFamily = useCallback(
-    async (targetFamilyId?: string) => {
-      if (!user) return;
-      setFamilyLoading(true);
-      setFamilyError(null);
-      try {
-        const knownId = targetFamilyId || profile?.lastSelectedFamilyId;
-        const families = await getUserFamilies(user.uid, knownId);
-        setAllUserFamilies(families);
-
-        if (families.length === 0) {
-          setFamily(null);
-          setFamilyLoading(false);
-          return;
-        }
-
-        const preferred =
-          (targetFamilyId ? families.find((f) => f.id === targetFamilyId) : undefined) ??
-          families.find((f) => f.id === profile?.lastSelectedFamilyId) ??
-          families[0];
-        setFamily(preferred);
-
-        const mems = await getFamilyMembers(preferred.id);
-        setMembers(mems);
-
-        // Keep or select first other member
-        const others = mems.filter((m) => m.userId !== user.uid);
-        if (others.length > 0) {
-          setSelectedMember((prev) =>
-            prev && mems.some((m) => m.id === prev.id) ? prev : others[0]
-          );
-        } else if (mems.length > 0) {
-          setSelectedMember(mems[0]);
-        }
-      } catch (err) {
-        setFamilyError(err instanceof Error ? err.message : "Failed to load family.");
-      } finally {
-        setFamilyLoading(false);
-      }
-    },
-    [user, profile]
-  );
-
-  useEffect(() => {
-    if (user) {
-      void Promise.resolve().then(() => loadFamily());
-    }
-  }, [user, profile, loadFamily]);
-
   const familyId = family?.id;
-  const selectedMemberId = selectedMember?.id;
   const userId = user?.uid;
-  const wishPanelLoading = Boolean(selectedMember && loadedMemberId !== selectedMember.id);
-
-  // ── Real-time member wishes, gift ideas & claims subscription ────────────
-  useEffect(() => {
-    if (!familyId || !selectedMemberId || !userId) {
-      return;
-    }
-
-    const unsubWishes = subscribeWishesForRecipient(
-      selectedMemberId,
-      familyId,
-      (wishes) => {
-        setMemberWishes(wishes);
-        setLoadedMemberId(selectedMemberId);
-      },
-      (err) => {
-        console.error("Wishes subscription error:", err);
-        setLoadedMemberId(selectedMemberId);
-      }
-    );
-
-    const unsubIdeas = subscribeGiftIdeasForRecipient(
-      selectedMemberId,
-      familyId,
-      userId,
-      (ideas) => {
-        setMemberGiftIdeas(ideas);
-      },
-      (err) => {
-        console.error("Gift ideas subscription error:", err);
-      }
-    );
-
-    const unsubClaims = subscribeClaimsForRecipient(
-      familyId,
-      selectedMemberId,
-      userId,
-      (claimsMap) => {
-        setClaims(claimsMap);
-      },
-      (err) => {
-        console.error("Claims subscription error:", err);
-      }
-    );
-
-    return () => {
-      unsubWishes();
-      unsubIdeas();
-      unsubClaims();
-    };
-  }, [familyId, selectedMemberId, userId]);
+  const wishPanelLoading = Boolean(selectedMember && dataLoading);
 
   // ── Real-time my own wishes subscription ─────────────────────────────────
   useEffect(() => {
@@ -284,7 +185,7 @@ export function App() {
       },
       (err) => {
         console.error("My wishes subscription error:", err);
-      }
+      },
     );
 
     return () => {
@@ -356,7 +257,9 @@ export function App() {
       setInviteSuccess(true);
       setInviteEmail("");
     } catch (err) {
-      setInviteError(err instanceof Error ? err.message : "Failed to send invite.");
+      setInviteError(
+        err instanceof Error ? err.message : "Failed to send invite.",
+      );
     } finally {
       setInviting(false);
     }
@@ -365,7 +268,8 @@ export function App() {
   const handleAcceptInvite = async (inv: Invite) => {
     if (!user) return;
     const resolvedProfile = profile || {
-      displayName: user.displayName || user.email?.split("@")[0] || "Family Member",
+      displayName:
+        user.displayName || user.email?.split("@")[0] || "Family Member",
       email: user.email ?? "",
       normalizedEmail: normalizeEmail(user.email ?? ""),
       createdAt: new Date().toISOString(),
@@ -373,9 +277,13 @@ export function App() {
     };
     const joinedFamilyId = await acceptInviteAndRefresh(
       () => acceptInvite(inv.id, user, resolvedProfile),
-      () => refreshInviteLists(loadPendingInvites, loadSentInvites)
+      () => refreshInviteLists(loadPendingInvites, loadSentInvites),
     );
-    try { await refreshProfile(); } catch { /* non-fatal */ }
+    try {
+      await refreshProfile();
+    } catch {
+      /* non-fatal */
+    }
     await loadFamily(joinedFamilyId);
     setCurrentView("family");
   };
@@ -392,13 +300,19 @@ export function App() {
     setAddingChild(true);
     setChildError(null);
     try {
-      const child = await createManagedChildProfile(family.id, childName.trim(), user);
-      setMembers((prev) => [...prev, child]);
+      const child = await createManagedChildProfile(
+        family.id,
+        childName.trim(),
+        user,
+      );
+      addMember(child);
       setChildName("");
       setShowChildModal(false);
-      setSelectedMember(child);
+      selectMember(child);
     } catch (err) {
-      setChildError(err instanceof Error ? err.message : "Failed to add child profile.");
+      setChildError(
+        err instanceof Error ? err.message : "Failed to add child profile.",
+      );
     } finally {
       setAddingChild(false);
     }
@@ -407,7 +321,7 @@ export function App() {
   const handleClaim = async (
     targetType: "wish" | "giftIdea",
     targetId: string,
-    recipientId: string
+    recipientId: string,
   ) => {
     if (!user || !family) return;
     const compositeId = `${targetType}_${targetId}`;
@@ -416,19 +330,27 @@ export function App() {
     try {
       if (claims[compositeId]) {
         await unclaimItem(compositeId, user);
-        setClaims((prev) => {
+        updateClaims((prev) => {
           const next = { ...prev };
           delete next[compositeId];
           return next;
         });
       } else {
-        const claim = await claimItem(targetType, targetId, recipientId, user, family.id);
-        setClaims((prev) => ({ ...prev, [compositeId]: claim }));
+        const claim = await claimItem(
+          targetType,
+          targetId,
+          recipientId,
+          user,
+          family.id,
+        );
+        updateClaims((prev) => ({ ...prev, [compositeId]: claim }));
       }
     } catch (err: unknown) {
       console.error("Claim error:", err);
       const msg = err instanceof Error ? err.message : "";
-      const isAlreadyClaimed = msg.toLowerCase().includes("already been claimed");
+      const isAlreadyClaimed = msg
+        .toLowerCase()
+        .includes("already been claimed");
       setClaimConflict({
         targetId,
         message: isAlreadyClaimed
@@ -454,7 +376,10 @@ export function App() {
 
   const handleDeleteGiftIdea = async (ideaId: string) => {
     if (!user) return;
-    if (!window.confirm("Are you sure you want to delete this secret gift idea?")) return;
+    if (
+      !window.confirm("Are you sure you want to delete this secret gift idea?")
+    )
+      return;
     try {
       await deleteGiftIdea(ideaId, user);
     } catch (err) {
@@ -482,8 +407,7 @@ export function App() {
       <FamilySetupScreen
         error={familyError}
         onFamilyReady={(readyFamilyId) => {
-          setFamilyLoading(true);
-          loadFamily(readyFamilyId);
+          void loadFamily(readyFamilyId);
         }}
       />
     );
@@ -521,7 +445,9 @@ export function App() {
           ) : (
             <form className="modal-body auth-form" onSubmit={handleInvite}>
               {inviteError && (
-                <div className="auth-alert error" role="alert">{inviteError}</div>
+                <div className="auth-alert error" role="alert">
+                  {inviteError}
+                </div>
               )}
               <div className="form-group">
                 <label htmlFor="invite-email-input">Email address</label>
@@ -559,7 +485,9 @@ export function App() {
         >
           <form className="modal-body auth-form" onSubmit={handleAddChild}>
             {childError && (
-              <div className="auth-alert error" role="alert">{childError}</div>
+              <div className="auth-alert error" role="alert">
+                {childError}
+              </div>
             )}
             <div className="form-group">
               <label htmlFor="child-name-input">Child's name</label>
@@ -627,8 +555,7 @@ export function App() {
           members={members}
           onClose={() => setShowFamilySettings(false)}
           onMembersUpdated={async () => {
-            const mems = await getFamilyMembers(family.id);
-            setMembers(mems);
+            await refreshMembers();
           }}
           onFamilyDeleted={async () => {
             setShowFamilySettings(false);
@@ -647,12 +574,19 @@ export function App() {
         {/* Multi-family switcher */}
         {allUserFamilies.length > 1 && (
           <div style={{ display: "grid", gap: "6px" }}>
-            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#8fa397", letterSpacing: "0.05em" }}>
+            <label
+              style={{
+                fontSize: "0.75rem",
+                textTransform: "uppercase",
+                color: "#8fa397",
+                letterSpacing: "0.05em",
+              }}
+            >
               Switch Family
             </label>
             <select
               value={family?.id ?? ""}
-              onChange={(e) => loadFamily(e.target.value)}
+              onChange={(e) => void selectFamily(e.target.value)}
               style={{
                 background: "#22332c",
                 color: "#fff",
@@ -745,36 +679,45 @@ export function App() {
         {!isOnline && (
           <div className="offline-banner" role="status">
             <WifiOff aria-hidden="true" style={{ width: 16, height: 16 }} />
-            <span>Offline - real-time updates are paused and changes will sync when reconnected.</span>
+            <span>
+              Offline - real-time updates are paused and changes will sync when
+              reconnected.
+            </span>
           </div>
         )}
-        {pendingInvites.length > 0 && !dismissedBanner && currentView !== "invites" && (
-          <div className="invite-alert-banner" role="status">
-            <div className="invite-alert-content">
-              <Mail aria-hidden="true" style={{ width: 18, height: 18, color: "#e88080" }} />
-              <span>
-                You have {pendingInvites.length} pending family invitation{pendingInvites.length > 1 ? "s" : ""}!
-              </span>
+        {pendingInvites.length > 0 &&
+          !dismissedBanner &&
+          currentView !== "invites" && (
+            <div className="invite-alert-banner" role="status">
+              <div className="invite-alert-content">
+                <Mail
+                  aria-hidden="true"
+                  style={{ width: 18, height: 18, color: "#e88080" }}
+                />
+                <span>
+                  You have {pendingInvites.length} pending family invitation
+                  {pendingInvites.length > 1 ? "s" : ""}!
+                </span>
+              </div>
+              <div className="invite-alert-actions">
+                <button
+                  type="button"
+                  className="invite-alert-view-btn"
+                  onClick={() => setCurrentView("invites")}
+                >
+                  View & respond
+                </button>
+                <button
+                  type="button"
+                  className="invite-alert-dismiss-btn"
+                  onClick={() => setDismissedBanner(true)}
+                  aria-label="Dismiss banner"
+                >
+                  <X aria-hidden="true" style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
             </div>
-            <div className="invite-alert-actions">
-              <button
-                type="button"
-                className="invite-alert-view-btn"
-                onClick={() => setCurrentView("invites")}
-              >
-                View & respond
-              </button>
-              <button
-                type="button"
-                className="invite-alert-dismiss-btn"
-                onClick={() => setDismissedBanner(true)}
-                aria-label="Dismiss banner"
-              >
-                <X aria-hidden="true" style={{ width: 14, height: 14 }} />
-              </button>
-            </div>
-          </div>
-        )}
+          )}
 
         {currentView === "claims" ? (
           <MyClaimsScreen onBack={() => setCurrentView("family")} />
@@ -793,30 +736,57 @@ export function App() {
             Sent invites table
             TODO: move to a different component and add pagination if needed
             */}
-            <section className="sent-invites-section" style={{ marginTop: "24px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+            <section
+              className="sent-invites-section"
+              style={{ marginTop: "24px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "12px",
+                }}
+              >
                 <h2 style={{ margin: 0 }}>Invites You Sent</h2>
                 <button
                   type="button"
                   className="btn-primary"
                   style={{ fontSize: "0.85rem", padding: "4px 8px" }}
-                  onClick={() => void refreshInviteLists(loadPendingInvites, loadSentInvites)}
+                  onClick={() =>
+                    void refreshInviteLists(loadPendingInvites, loadSentInvites)
+                  }
                   disabled={loadingInvites}
                 >
                   {loadingInvites ? "Refreshing…" : "Refresh"}
                 </button>
               </div>
               {sentInvites.length === 0 ? (
-                <p className="sent-invites-empty">You have not sent any invitations.</p>
+                <p className="sent-invites-empty">
+                  You have not sent any invitations.
+                </p>
               ) : (
-                <table className="sent-invites-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                <table
+                  className="sent-invites-table"
+                  style={{ width: "100%", borderCollapse: "collapse" }}
+                >
                   <thead>
                     <tr style={{ borderBottom: "1px solid #2d4538" }}>
-                      <th style={{ textAlign: "left", padding: "8px" }}>Email</th>
-                      <th style={{ textAlign: "left", padding: "8px" }}>Family</th>
-                      <th style={{ textAlign: "left", padding: "8px" }}>Status</th>
-                      <th style={{ textAlign: "left", padding: "8px" }}>Expires</th>
-                      <th style={{ textAlign: "left", padding: "8px" }}>Link</th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>
+                        Email
+                      </th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>
+                        Family
+                      </th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>
+                        Status
+                      </th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>
+                        Expires
+                      </th>
+                      <th style={{ textAlign: "left", padding: "8px" }}>
+                        Link
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -824,13 +794,15 @@ export function App() {
                       const status = inv.acceptedAt
                         ? "Accepted"
                         : inv.rejectedAt
-                        ? "Rejected"
-                        : inv.revokedAt
-                        ? "Revoked"
-                        : new Date(inv.expiresAt) < new Date()
-                        ? "Expired"
-                        : "Pending";
-                      const expiry = new Date(inv.expiresAt).toLocaleDateString();
+                          ? "Rejected"
+                          : inv.revokedAt
+                            ? "Revoked"
+                            : new Date(inv.expiresAt) < new Date()
+                              ? "Expired"
+                              : "Pending";
+                      const expiry = new Date(
+                        inv.expiresAt,
+                      ).toLocaleDateString();
                       const copyLink = async () => {
                         const link = `${window.location.origin}/invite/${inv.id}`;
                         await navigator.clipboard.writeText(link);
@@ -838,16 +810,24 @@ export function App() {
                         // setActionSuccess(`Link copied for ${inv.email}`);
                       };
                       return (
-                        <tr key={inv.id} style={{ borderBottom: "1px solid #2d4538" }}>
+                        <tr
+                          key={inv.id}
+                          style={{ borderBottom: "1px solid #2d4538" }}
+                        >
                           <td style={{ padding: "8px" }}>{inv.email}</td>
-                          <td style={{ padding: "8px" }}>{inv.familyName || "(none)"}</td>
+                          <td style={{ padding: "8px" }}>
+                            {inv.familyName || "(none)"}
+                          </td>
                           <td style={{ padding: "8px" }}>{status}</td>
                           <td style={{ padding: "8px" }}>{expiry}</td>
                           <td style={{ padding: "8px" }}>
                             <button
                               type="button"
                               className="btn-primary"
-                              style={{ fontSize: "0.85rem", padding: "4px 8px" }}
+                              style={{
+                                fontSize: "0.85rem",
+                                padding: "4px 8px",
+                              }}
                               onClick={copyLink}
                             >
                               Copy Link
@@ -874,7 +854,10 @@ export function App() {
                 className="primary-action"
                 style={{ padding: "0 16px" }}
                 onClick={() => {
-                  setWishModalTarget({ recipientId: user.uid, recipientName: "Myself" });
+                  setWishModalTarget({
+                    recipientId: user.uid,
+                    recipientName: "Myself",
+                  });
                   setEditingWish(null);
                   setShowWishModal(true);
                 }}
@@ -888,7 +871,10 @@ export function App() {
               <div className="empty-state">
                 <Gift aria-hidden="true" className="empty-gift-icon" />
                 <h3>No wishes yet</h3>
-                <p>Click "New wish" above to add items you are hoping for this Christmas!</p>
+                <p>
+                  Click "New wish" above to add items you are hoping for this
+                  Christmas!
+                </p>
               </div>
             ) : (
               <div className="wish-list">
@@ -896,7 +882,11 @@ export function App() {
                   <article
                     className="wish-row"
                     key={wish.id}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
                   >
                     <div>
                       <span style={{ fontWeight: 600 }}>{wish.title}</span>
@@ -910,7 +900,10 @@ export function App() {
                         className="secondary-action"
                         style={{ padding: "4px 8px", minHeight: "32px" }}
                         onClick={() => {
-                          setWishModalTarget({ recipientId: wish.recipientId, recipientName: "Myself" });
+                          setWishModalTarget({
+                            recipientId: wish.recipientId,
+                            recipientName: "Myself",
+                          });
                           setEditingWish(wish);
                           setShowWishModal(true);
                         }}
@@ -949,15 +942,23 @@ export function App() {
                 <p className="eyebrow">{family?.name}</p>
                 <h1>Christmas wishes</h1>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 {isAdmin && (
                   <button
                     type="button"
                     className="secondary-action"
-                    style={{ padding: "0 12px", minHeight: "36px", fontSize: "0.88rem" }}
+                    style={{
+                      padding: "0 12px",
+                      minHeight: "36px",
+                      fontSize: "0.88rem",
+                    }}
                     onClick={() => setShowFamilySettings(true)}
                   >
-                    <Settings style={{ width: 15, height: 15, marginRight: 6 }} />
+                    <Settings
+                      style={{ width: 15, height: 15, marginRight: 6 }}
+                    />
                     Settings
                   </button>
                 )}
@@ -969,7 +970,9 @@ export function App() {
             </header>
 
             {familyError && (
-              <div className="auth-alert error" role="alert">{familyError}</div>
+              <div className="auth-alert error" role="alert">
+                {familyError}
+              </div>
             )}
 
             {familyLoading ? (
@@ -1005,7 +1008,10 @@ export function App() {
                           type="button"
                           onClick={() => setShowChildModal(true)}
                         >
-                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          <Plus
+                            aria-hidden="true"
+                            style={{ width: 14, height: 14 }}
+                          />
                           Add child
                         </button>
                       )}
@@ -1017,14 +1023,21 @@ export function App() {
                         <article
                           className={`member-row member-row--clickable ${selectedMember?.id === currentUserMember.id ? "member-row--selected" : ""}`}
                           key={currentUserMember.id}
-                          onClick={() => setSelectedMember(currentUserMember)}
+                          onClick={() => selectMember(currentUserMember)}
                           role="button"
                           tabIndex={0}
-                          onKeyDown={(e) => e.key === "Enter" && setSelectedMember(currentUserMember)}
+                          onKeyDown={(e) =>
+                            e.key === "Enter" && selectMember(currentUserMember)
+                          }
                         >
                           <div>
-                            <h3>{currentUserMember.displayName} <span className="you-badge">you</span></h3>
-                            <p>{currentUserMember.admin ? "Admin" : "Member"}</p>
+                            <h3>
+                              {currentUserMember.displayName}{" "}
+                              <span className="you-badge">you</span>
+                            </h3>
+                            <p>
+                              {currentUserMember.admin ? "Admin" : "Member"}
+                            </p>
                           </div>
                         </article>
                       )}
@@ -1033,21 +1046,30 @@ export function App() {
                         <article
                           className={`member-row member-row--clickable ${selectedMember?.id === member.id ? "member-row--selected" : ""}`}
                           key={member.id}
-                          onClick={() => setSelectedMember(member)}
+                          onClick={() => selectMember(member)}
                           role="button"
                           tabIndex={0}
-                          onKeyDown={(e) => e.key === "Enter" && setSelectedMember(member)}
+                          onKeyDown={(e) =>
+                            e.key === "Enter" && selectMember(member)
+                          }
                         >
                           <div>
                             <h3>{member.displayName}</h3>
-                            <p>{member.kind === "managedChild" ? "Managed child" : member.admin ? "Admin" : "Member"}</p>
+                            <p>
+                              {member.kind === "managedChild"
+                                ? "Managed child"
+                                : member.admin
+                                  ? "Admin"
+                                  : "Member"}
+                            </p>
                           </div>
                         </article>
                       ))}
 
                       {members.length <= 1 && (
                         <p className="empty-members-hint">
-                          No other members yet.{isAdmin ? " Use Invite to add someone." : ""}
+                          No other members yet.
+                          {isAdmin ? " Use Invite to add someone." : ""}
                         </p>
                       )}
                     </div>
@@ -1055,20 +1077,41 @@ export function App() {
 
                   {/* ── Selected member's wishes ── */}
                   <section className="panel" id="wishes">
-                    <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <h2>{selectedMember ? `${selectedMember.displayName}'s list` : "Select a member"}</h2>
+                    <div
+                      className="panel-header"
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <h2>
+                        {selectedMember
+                          ? `${selectedMember.displayName}'s list`
+                          : "Select a member"}
+                      </h2>
                       {selectedMember && isGuardianOfSelected && (
                         <button
                           className="secondary-action"
                           type="button"
-                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          style={{
+                            padding: "0 10px",
+                            minHeight: "32px",
+                            fontSize: "0.85rem",
+                          }}
                           onClick={() => {
-                            setWishModalTarget({ recipientId: selectedMember.id, recipientName: selectedMember.displayName });
+                            setWishModalTarget({
+                              recipientId: selectedMember.id,
+                              recipientName: selectedMember.displayName,
+                            });
                             setEditingWish(null);
                             setShowWishModal(true);
                           }}
                         >
-                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          <Plus
+                            aria-hidden="true"
+                            style={{ width: 14, height: 14 }}
+                          />
                           Add child wish
                         </button>
                       )}
@@ -1076,21 +1119,37 @@ export function App() {
                         <button
                           className="secondary-action"
                           type="button"
-                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          style={{
+                            padding: "0 10px",
+                            minHeight: "32px",
+                            fontSize: "0.85rem",
+                          }}
                           onClick={() => {
-                            setWishModalTarget({ recipientId: user.uid, recipientName: "Myself" });
+                            setWishModalTarget({
+                              recipientId: user.uid,
+                              recipientName: "Myself",
+                            });
                             setEditingWish(null);
                             setShowWishModal(true);
                           }}
                         >
-                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          <Plus
+                            aria-hidden="true"
+                            style={{ width: 14, height: 14 }}
+                          />
                           Add wish
                         </button>
                       )}
                     </div>
 
                     {!selectedMember ? (
-                      <p className="empty-members-hint">Click a family member to see their wishes.</p>
+                      <p className="empty-members-hint">
+                        Click a family member to see their wishes.
+                      </p>
+                    ) : dataError ? (
+                      <p className="auth-alert error" role="alert">
+                        {dataError}
+                      </p>
                     ) : wishPanelLoading ? (
                       <p className="empty-members-hint">Loading…</p>
                     ) : memberWishes.length === 0 ? (
@@ -1100,41 +1159,64 @@ export function App() {
                         {memberWishes.map((wish) => {
                           const claimKey = `wish_${wish.id}`;
                           const isClaimed = !!claims[claimKey];
-                          const isMe = claims[claimKey]?.claimantId === user.uid;
+                          const isMe =
+                            claims[claimKey]?.claimantId === user.uid;
                           const busy = claimingId === claimKey;
-                          const canManageWish = selectedMember.id === user.uid || isGuardianOfSelected;
+                          const canManageWish =
+                            selectedMember.id === user.uid ||
+                            isGuardianOfSelected;
 
                           return (
                             <article
                               className="wish-row"
                               key={wish.id}
-                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
                             >
                               <div>
-                                <span style={{ fontWeight: 600 }}>{wish.title}</span>
+                                <span style={{ fontWeight: 600 }}>
+                                  {wish.title}
+                                </span>
                                 {wish.description && (
-                                  <p className="wish-desc">{wish.description}</p>
+                                  <p className="wish-desc">
+                                    {wish.description}
+                                  </p>
                                 )}
                               </div>
 
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                }}
+                              >
                                 {canManageWish && (
                                   <>
                                     <button
                                       type="button"
                                       className="secondary-action"
-                                      style={{ padding: "4px 8px", minHeight: "30px" }}
+                                      style={{
+                                        padding: "4px 8px",
+                                        minHeight: "30px",
+                                      }}
                                       onClick={() => {
                                         setWishModalTarget({
                                           recipientId: wish.recipientId,
-                                          recipientName: selectedMember.displayName,
+                                          recipientName:
+                                            selectedMember.displayName,
                                         });
                                         setEditingWish(wish);
                                         setShowWishModal(true);
                                       }}
                                       title="Edit wish"
                                     >
-                                      <Edit3 style={{ width: 13, height: 13 }} />
+                                      <Edit3
+                                        style={{ width: 13, height: 13 }}
+                                      />
                                     </button>
                                     <button
                                       type="button"
@@ -1151,26 +1233,49 @@ export function App() {
                                       onClick={() => handleDeleteWish(wish.id)}
                                       title="Delete wish"
                                     >
-                                      <Trash2 style={{ width: 13, height: 13 }} />
+                                      <Trash2
+                                        style={{ width: 13, height: 13 }}
+                                      />
                                     </button>
                                   </>
                                 )}
 
                                 {claimConflict?.targetId === wish.id && (
-                                  <span className="claim-conflict-notice" role="alert">
+                                  <span
+                                    className="claim-conflict-notice"
+                                    role="alert"
+                                  >
                                     {claimConflict.message}
                                   </span>
                                 )}
 
                                 {selectedMember.id !== user.uid && (
                                   <button
-                                    className={isClaimed ? "claim claimed" : "claim"}
+                                    className={
+                                      isClaimed ? "claim claimed" : "claim"
+                                    }
                                     type="button"
                                     disabled={busy || (isClaimed && !isMe)}
-                                    onClick={() => handleClaim("wish", wish.id, wish.recipientId)}
-                                    title={isClaimed && !isMe ? "Claimed by someone else" : undefined}
+                                    onClick={() =>
+                                      handleClaim(
+                                        "wish",
+                                        wish.id,
+                                        wish.recipientId,
+                                      )
+                                    }
+                                    title={
+                                      isClaimed && !isMe
+                                        ? "Claimed by someone else"
+                                        : undefined
+                                    }
                                   >
-                                    {busy ? "…" : isClaimed ? (isMe ? "Unclaim" : "Claimed") : "Claim"}
+                                    {busy
+                                      ? "…"
+                                      : isClaimed
+                                        ? isMe
+                                          ? "Unclaim"
+                                          : "Claimed"
+                                        : "Claim"}
                                   </button>
                                 )}
                               </div>
@@ -1183,7 +1288,14 @@ export function App() {
 
                   {/* ── Hidden gift ideas ── */}
                   <section className="panel secret-panel">
-                    <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div
+                      className="panel-header"
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
                       <div>
                         <h2>Hidden ideas</h2>
                         {selectedMember && (
@@ -1196,20 +1308,34 @@ export function App() {
                         <button
                           className="secondary-action"
                           type="button"
-                          style={{ padding: "0 10px", minHeight: "32px", fontSize: "0.85rem" }}
+                          style={{
+                            padding: "0 10px",
+                            minHeight: "32px",
+                            fontSize: "0.85rem",
+                          }}
                           onClick={() => setShowGiftIdeaModal(true)}
                         >
-                          <Plus aria-hidden="true" style={{ width: 14, height: 14 }} />
+                          <Plus
+                            aria-hidden="true"
+                            style={{ width: 14, height: 14 }}
+                          />
                           Add idea
                         </button>
                       )}
                     </div>
 
                     {!selectedMember ? (
-                      <p className="empty-members-hint">Select a member first.</p>
+                      <p className="empty-members-hint">
+                        Select a member first.
+                      </p>
                     ) : selectedMember.id === user.uid ? (
                       <p className="empty-members-hint">
-                        Surprise privacy: You cannot view secret gift ideas planned for yourself.
+                        Surprise privacy: You cannot view secret gift ideas
+                        planned for yourself.
+                      </p>
+                    ) : dataError ? (
+                      <p className="auth-alert error" role="alert">
+                        {dataError}
                       </p>
                     ) : wishPanelLoading ? (
                       <p className="empty-members-hint">Loading…</p>
@@ -1220,7 +1346,8 @@ export function App() {
                         {memberGiftIdeas.map((idea) => {
                           const claimKey = `giftIdea_${idea.id}`;
                           const isClaimed = !!claims[claimKey];
-                          const isMe = claims[claimKey]?.claimantId === user.uid;
+                          const isMe =
+                            claims[claimKey]?.claimantId === user.uid;
                           const busy = claimingId === claimKey;
                           const isCreator = idea.creatorId === user.uid;
 
@@ -1228,16 +1355,30 @@ export function App() {
                             <article
                               className="wish-row"
                               key={idea.id}
-                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
                             >
                               <div>
-                                <span style={{ fontWeight: 600 }}>{idea.title}</span>
+                                <span style={{ fontWeight: 600 }}>
+                                  {idea.title}
+                                </span>
                                 {idea.description && (
-                                  <p className="wish-desc">{idea.description}</p>
+                                  <p className="wish-desc">
+                                    {idea.description}
+                                  </p>
                                 )}
                               </div>
 
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                }}
+                              >
                                 {isCreator && (
                                   <button
                                     type="button"
@@ -1251,7 +1392,9 @@ export function App() {
                                       display: "flex",
                                       alignItems: "center",
                                     }}
-                                    onClick={() => handleDeleteGiftIdea(idea.id)}
+                                    onClick={() =>
+                                      handleDeleteGiftIdea(idea.id)
+                                    }
                                     title="Delete gift idea"
                                   >
                                     <Trash2 style={{ width: 13, height: 13 }} />
@@ -1259,19 +1402,40 @@ export function App() {
                                 )}
 
                                 {claimConflict?.targetId === idea.id && (
-                                  <span className="claim-conflict-notice" role="alert">
+                                  <span
+                                    className="claim-conflict-notice"
+                                    role="alert"
+                                  >
                                     {claimConflict.message}
                                   </span>
                                 )}
 
                                 <button
-                                  className={isClaimed ? "claim claimed" : "claim"}
+                                  className={
+                                    isClaimed ? "claim claimed" : "claim"
+                                  }
                                   type="button"
                                   disabled={busy || (isClaimed && !isMe)}
-                                  onClick={() => handleClaim("giftIdea", idea.id, idea.recipientId)}
-                                  title={isClaimed && !isMe ? "Claimed by someone else" : undefined}
+                                  onClick={() =>
+                                    handleClaim(
+                                      "giftIdea",
+                                      idea.id,
+                                      idea.recipientId,
+                                    )
+                                  }
+                                  title={
+                                    isClaimed && !isMe
+                                      ? "Claimed by someone else"
+                                      : undefined
+                                  }
                                 >
-                                  {busy ? "…" : isClaimed ? (isMe ? "Unclaim" : "Claimed") : "Claim"}
+                                  {busy
+                                    ? "…"
+                                    : isClaimed
+                                      ? isMe
+                                        ? "Unclaim"
+                                        : "Claimed"
+                                      : "Claim"}
                                 </button>
                               </div>
                             </article>

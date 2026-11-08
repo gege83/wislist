@@ -14,6 +14,20 @@ import { User } from "firebase/auth";
 import { db } from "./firebase";
 import { Wish } from "../types";
 
+function mapWish(id: string, data: Record<string, unknown>): Wish {
+  return {
+    id,
+    recipientId: data.recipientId as string,
+    creatorId: data.creatorId as string,
+    title: data.title as string,
+    description: data.description as string | undefined,
+    familyId: data.familyId as string,
+    status: data.status as Wish["status"],
+    createdAt: data.createdAt as string,
+    deletedAt: (data.deletedAt as string | null | undefined) ?? null,
+  };
+}
+
 export interface CreateWishInput {
   recipientId: string;
   title: string;
@@ -23,7 +37,7 @@ export interface CreateWishInput {
 
 export async function createWish(
   input: CreateWishInput,
-  currentUser: User
+  currentUser: User,
 ): Promise<Wish> {
   const wishRef = doc(collection(db, "wishes"));
   const wishId = wishRef.id;
@@ -65,7 +79,7 @@ export async function createWish(
 
 export async function updateWish(
   wishId: string,
-  updates: Partial<Pick<Wish, "title" | "description">>
+  updates: Partial<Pick<Wish, "title" | "description">>,
 ): Promise<void> {
   const wishRef = doc(db, "wishes", wishId);
   const patch: Record<string, unknown> = {};
@@ -94,13 +108,13 @@ export async function deleteWish(wishId: string): Promise<void> {
 
 export async function getWishesForFamilyMember(
   recipientId: string,
-  familyId: string
+  familyId: string,
 ): Promise<Wish[]> {
   const q = query(
     collection(db, "wishes"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
-    where("status", "==", "available")
+    where("status", "==", "available"),
   );
 
   const snap = await getDocs(q);
@@ -108,17 +122,7 @@ export async function getWishesForFamilyMember(
 
   snap.forEach((d) => {
     const data = d.data();
-    wishes.push({
-      id: d.id,
-      recipientId: data.recipientId,
-      creatorId: data.creatorId,
-      title: data.title,
-      description: data.description,
-      familyId: data.familyId,
-      status: data.status,
-      createdAt: data.createdAt,
-      deletedAt: data.deletedAt ?? null,
-    });
+    wishes.push(mapWish(d.id, data));
   });
 
   return wishes;
@@ -126,13 +130,13 @@ export async function getWishesForFamilyMember(
 
 export async function getActiveWishesForRecipient(
   recipientId: string,
-  familyId: string
+  familyId: string,
 ): Promise<Wish[]> {
   const q = query(
     collection(db, "wishes"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
-    where("status", "==", "available")
+    where("status", "==", "available"),
   );
 
   const snap = await getDocs(q);
@@ -140,17 +144,7 @@ export async function getActiveWishesForRecipient(
 
   snap.forEach((d) => {
     const data = d.data();
-    wishes.push({
-      id: d.id,
-      recipientId: data.recipientId,
-      creatorId: data.creatorId,
-      title: data.title,
-      description: data.description,
-      familyId: data.familyId,
-      status: data.status,
-      createdAt: data.createdAt,
-      deletedAt: data.deletedAt ?? null,
-    });
+    wishes.push(mapWish(d.id, data));
   });
 
   return wishes;
@@ -160,17 +154,7 @@ export async function getWishById(wishId: string): Promise<Wish | null> {
   const snap = await getDoc(doc(db, "wishes", wishId));
   if (!snap.exists()) return null;
   const data = snap.data();
-  return {
-    id: snap.id,
-    recipientId: data.recipientId,
-    creatorId: data.creatorId,
-    title: data.title,
-    description: data.description,
-    familyId: data.familyId,
-    status: data.status,
-    createdAt: data.createdAt,
-    deletedAt: data.deletedAt ?? null,
-  };
+  return mapWish(snap.id, data);
 }
 
 export function subscribeWishesForRecipient(
@@ -178,13 +162,13 @@ export function subscribeWishesForRecipient(
   familyId: string,
   onUpdate: (wishes: Wish[]) => void,
   onError?: (err: Error) => void,
-  firestoreInstance: Firestore = db
+  firestoreInstance: Firestore = db,
 ): () => void {
   const q = query(
     collection(firestoreInstance, "wishes"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
-    where("status", "==", "available")
+    where("status", "==", "available"),
   );
 
   return onSnapshot(
@@ -193,22 +177,12 @@ export function subscribeWishesForRecipient(
       const wishes: Wish[] = [];
       snap.forEach((d) => {
         const data = d.data();
-        wishes.push({
-          id: d.id,
-          recipientId: data.recipientId,
-          creatorId: data.creatorId,
-          title: data.title,
-          description: data.description,
-          familyId: data.familyId,
-          status: data.status,
-          createdAt: data.createdAt,
-          deletedAt: data.deletedAt ?? null,
-        });
+        wishes.push(mapWish(d.id, data));
       });
       onUpdate(wishes);
     },
     (err) => {
       onError?.(err);
-    }
+    },
   );
 }

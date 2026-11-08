@@ -14,6 +14,19 @@ import { User } from "firebase/auth";
 import { db } from "./firebase";
 import { GiftIdea } from "../types";
 
+function mapGiftIdea(id: string, data: Record<string, unknown>): GiftIdea {
+  return {
+    id,
+    recipientId: data.recipientId as string,
+    creatorId: data.creatorId as string,
+    title: data.title as string,
+    description: data.description as string | undefined,
+    familyId: data.familyId as string,
+    createdAt: data.createdAt as string,
+    deletedAt: (data.deletedAt as string | null | undefined) ?? null,
+  };
+}
+
 export interface CreateGiftIdeaInput {
   recipientId: string;
   familyId: string;
@@ -23,7 +36,7 @@ export interface CreateGiftIdeaInput {
 
 export async function createGiftIdea(
   input: CreateGiftIdeaInput,
-  currentUser: User
+  currentUser: User,
 ): Promise<GiftIdea> {
   if (input.recipientId === currentUser.uid) {
     throw new Error("You cannot add a gift idea for yourself.");
@@ -64,7 +77,7 @@ export async function createGiftIdea(
 export async function getGiftIdeasForRecipient(
   recipientId: string,
   familyId: string,
-  currentUserId: string
+  currentUserId: string,
 ): Promise<GiftIdea[]> {
   // Surprise privacy: never attempt to query gift ideas if current user is the recipient
   if (recipientId === currentUserId) {
@@ -74,7 +87,7 @@ export async function getGiftIdeasForRecipient(
   const q = query(
     collection(db, "giftIdeas"),
     where("recipientId", "==", recipientId),
-    where("familyId", "==", familyId)
+    where("familyId", "==", familyId),
   );
 
   const snap = await getDocs(q);
@@ -83,16 +96,7 @@ export async function getGiftIdeasForRecipient(
   snap.forEach((d) => {
     const data = d.data();
     if (!data.deletedAt) {
-      ideas.push({
-        id: d.id,
-        recipientId: data.recipientId,
-        creatorId: data.creatorId,
-        title: data.title,
-        description: data.description,
-        familyId: data.familyId,
-        createdAt: data.createdAt,
-        deletedAt: data.deletedAt ?? null,
-      });
+      ideas.push(mapGiftIdea(d.id, data));
     }
   });
 
@@ -101,7 +105,7 @@ export async function getGiftIdeasForRecipient(
 
 export async function deleteGiftIdea(
   giftIdeaId: string,
-  currentUser: User
+  currentUser: User,
 ): Promise<void> {
   const ideaRef = doc(db, "giftIdeas", giftIdeaId);
   const snap = await getDoc(ideaRef);
@@ -120,7 +124,7 @@ export function subscribeGiftIdeasForRecipient(
   currentUserId: string,
   onUpdate: (ideas: GiftIdea[]) => void,
   onError?: (err: Error) => void,
-  firestoreInstance: Firestore = db
+  firestoreInstance: Firestore = db,
 ): () => void {
   // Surprise privacy: A recipient must never see or subscribe to secret gift ideas about themselves
   if (recipientId === currentUserId) {
@@ -131,7 +135,7 @@ export function subscribeGiftIdeasForRecipient(
   const q = query(
     collection(firestoreInstance, "giftIdeas"),
     where("recipientId", "==", recipientId),
-    where("familyId", "==", familyId)
+    where("familyId", "==", familyId),
   );
 
   return onSnapshot(
@@ -141,22 +145,13 @@ export function subscribeGiftIdeasForRecipient(
       snap.forEach((d) => {
         const data = d.data();
         if (!data.deletedAt) {
-          ideas.push({
-            id: d.id,
-            recipientId: data.recipientId,
-            creatorId: data.creatorId,
-            title: data.title,
-            description: data.description,
-            familyId: data.familyId,
-            createdAt: data.createdAt,
-            deletedAt: data.deletedAt ?? null,
-          });
+          ideas.push(mapGiftIdea(d.id, data));
         }
       });
       onUpdate(ideas);
     },
     (err) => {
       onError?.(err);
-    }
+    },
   );
 }

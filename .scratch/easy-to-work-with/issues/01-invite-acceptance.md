@@ -4,11 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Successful acceptance records the accepting user and time, creates a non-admin adult Family Member, and updates the user's selected Family.
-- [ ] The Invite, membership, and profile changes are atomic; a failed operation does not leave a partial acceptance.
-- [ ] Missing, mismatched-email, expired, revoked, rejected, and already-accepted Invites fail with clear errors and no writes.
-- [ ] The UI refreshes pending/sent invite lists and loads the joined Family only after acceptance succeeds.
-- [ ] Firestore emulator tests call the production acceptance operation and verify persisted success and failure outcomes.
-
+- [x] Successful acceptance records the accepting user and time, creates a non-admin adult Family Member, and updates the user's selected Family.
+- [x] The Invite, membership, and profile changes are atomic; a failed operation does not leave a partial acceptance.
+- [x] Missing, mismatched-email, expired, revoked, rejected, and already-accepted Invites fail with clear errors and no writes.
+- [x] The UI refreshes pending/sent invite lists and loads the joined Family only after acceptance succeeds.
+- [x] Firestore emulator tests call the production acceptance operation and verify persisted success and failure outcomes.

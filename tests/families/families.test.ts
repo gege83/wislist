@@ -3,20 +3,25 @@ import {
   initializeTestEnvironment,
   RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  writeBatch,
+  Timestamp,
+} from "firebase/firestore";
 import { normalizeEmail } from "../../src/lib/auth";
 import { Family, FamilyMember, Invite } from "../../src/types";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { acceptInvite, createFamily } from "../../src/lib/families";
 
 let testEnv: RulesTestEnvironment;
 
 beforeAll(async () => {
   process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080";
-  const rules = readFileSync(
-    resolve(process.cwd(), "firestore.rules"),
-    "utf8"
-  );
+  const rules = readFileSync(resolve(process.cwd(), "firestore.rules"), "utf8");
   testEnv = await initializeTestEnvironment({
     projectId: "christmas-wishlist-families-test",
     firestore: {
@@ -40,6 +45,43 @@ beforeEach(async () => {
 });
 
 describe("Families and Invites", () => {
+  it("creates the initial Family Admin and count as one atomic production operation", async () => {
+    const userId = "alice_uid";
+    const email = "alice@example.com";
+    const userDb = testEnv.authenticatedContext(userId, { email }).firestore();
+    const profile = {
+      displayName: "Alice",
+      email,
+      normalizedEmail: normalizeEmail(email),
+      createdAt: new Date().toISOString(),
+      lastSelectedFamilyId: null,
+    };
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "users", userId), profile);
+    });
+
+    const family = await createFamily(
+      "The Bakers",
+      {
+        uid: userId,
+        email,
+        displayName: "Alice",
+      } as import("firebase/auth").User,
+      profile,
+      userDb,
+    );
+    const savedFamily = await getDoc(doc(userDb, "families", family.id));
+    const admin = await getDoc(
+      doc(userDb, `families/${family.id}/members/${userId}`),
+    );
+    const savedProfile = await getDoc(doc(userDb, "users", userId));
+
+    expect(family.adminCount).toBe(1);
+    expect(savedFamily.data()?.adminCount).toBe(1);
+    expect(admin.data()).toMatchObject({ admin: true, kind: "adult", userId });
+    expect(savedProfile.data()?.lastSelectedFamilyId).toBe(family.id);
+  });
+
   it("allows signed-in users without membership to create a family and become initial admin", async () => {
     const userId = "alice_uid";
     const userDb = testEnv
@@ -49,16 +91,16 @@ describe("Families and Invites", () => {
     const familyRef = doc(userDb, "families", "fam_new");
     const memberRef = doc(userDb, "families/fam_new/members", userId);
 
-    // Create family
-    await setDoc(familyRef, {
+    const batch = writeBatch(userDb);
+    batch.set(familyRef, {
       name: "The Bakers",
       createdBy: userId,
       createdAt: new Date().toISOString(),
       deletedAt: null,
+      adminCount: 1,
     });
 
-    // Create self as admin member
-    await setDoc(memberRef, {
+    batch.set(memberRef, {
       kind: "adult",
       displayName: "Alice",
       userId,
@@ -67,6 +109,7 @@ describe("Families and Invites", () => {
       createdBy: userId,
       removedAt: null,
     });
+    await batch.commit();
 
     const famSnap = await getDoc(familyRef);
     expect(famSnap.exists()).toBe(true);
@@ -110,6 +153,7 @@ describe("Families and Invites", () => {
       createdBy: adminId,
       createdAt: new Date(now).toISOString(),
       expiresAt,
+      expiresAtTimestamp: Timestamp.fromDate(new Date(expiresAt)),
       acceptedAt: null,
       acceptedBy: null,
       revokedAt: null,
@@ -143,6 +187,13 @@ describe("Families and Invites", () => {
         userId: "alice",
         admin: true,
       });
+      await setDoc(doc(db, "users", bobId), {
+        displayName: "Bob Smith",
+        email: bobEmail,
+        normalizedEmail: normalizeEmail(bobEmail),
+        createdAt: new Date().toISOString(),
+        lastSelectedFamilyId: null,
+      });
 
       // Active invite for Bob
       await setDoc(doc(db, "invites", "inv_bob"), {
@@ -152,6 +203,7 @@ describe("Families and Invites", () => {
         createdBy: "alice",
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 100000).toISOString(),
+        expiresAtTimestamp: Timestamp.fromDate(new Date(Date.now() + 100000)),
         acceptedAt: null,
         acceptedBy: null,
         revokedAt: null,
@@ -163,23 +215,26 @@ describe("Families and Invites", () => {
     const snap = await getDoc(inviteRef);
     expect(snap.exists()).toBe(true);
 
-    // Bob accepts the invite: updates invite doc and adds self as adult member
-    await updateDoc(inviteRef, {
-      acceptedAt: new Date().toISOString(),
-      acceptedBy: bobId,
-    });
+    // Bob accepts through the production operation so Invite and membership writes are atomic.
+    const joinedFamilyId = await acceptInvite(
+      "inv_bob",
+      {
+        uid: bobId,
+        email: bobEmail,
+        displayName: "Bob Smith",
+      } as import("firebase/auth").User,
+      {
+        displayName: "Bob Smith",
+        email: bobEmail,
+        normalizedEmail: normalizeEmail(bobEmail),
+        createdAt: new Date().toISOString(),
+        lastSelectedFamilyId: null,
+      },
+      bobDb,
+    );
+    expect(joinedFamilyId).toBe("fam1");
 
     const memberRef = doc(bobDb, "families/fam1/members", bobId);
-    await setDoc(memberRef, {
-      kind: "adult",
-      displayName: "Bob Smith",
-      userId: bobId,
-      admin: false,
-      createdAt: new Date().toISOString(),
-      createdBy: bobId,
-      removedAt: null,
-    });
-
     const memberSnap = await getDoc(memberRef);
     expect(memberSnap.exists()).toBe(true);
     expect((memberSnap.data() as FamilyMember).userId).toBe(bobId);
@@ -202,6 +257,7 @@ describe("Families and Invites", () => {
         createdBy: "alice",
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 100000).toISOString(),
+        expiresAtTimestamp: Timestamp.fromDate(new Date(Date.now() + 100000)),
         acceptedAt: null,
         acceptedBy: null,
         revokedAt: null,
@@ -280,8 +336,12 @@ describe("Families and Invites", () => {
       });
     });
 
-    const { collectionGroup, query, where, getDocs } = await import("firebase/firestore");
-    const q = query(collectionGroup(userDb, "members"), where("userId", "==", userId));
+    const { collectionGroup, query, where, getDocs } =
+      await import("firebase/firestore");
+    const q = query(
+      collectionGroup(userDb, "members"),
+      where("userId", "==", userId),
+    );
     const snaps = await getDocs(q);
     expect(snaps.size).toBe(1);
     expect(snaps.docs[0].data().displayName).toBe("Charlie");

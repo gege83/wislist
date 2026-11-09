@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export interface UserProfile {
   displayName: string;
   email: string;
@@ -15,6 +17,8 @@ export interface FamilyMember {
   userId?: string;
   admin?: boolean;
   guardianIds?: string[];
+  guardianChange?: { guardianId: string; revision: string };
+  joinedByInviteId?: string;
   createdAt: string;
   createdBy: string;
   removedAt?: string | null;
@@ -26,6 +30,8 @@ export interface Family {
   createdBy: string;
   createdAt: string;
   deletedAt?: string | null;
+  adminCount?: number;
+  adminCountChange?: { memberId: string; revision: string };
 }
 
 export interface Invite {
@@ -37,6 +43,7 @@ export interface Invite {
   createdBy: string;
   createdAt: string;
   expiresAt: string;
+  expiresAtTimestamp?: Timestamp;
   acceptedAt?: string | null;
   acceptedBy?: string | null;
   revokedAt?: string | null;

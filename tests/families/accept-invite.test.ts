@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { initializeTestEnvironment, RulesTestEnvironment } from "@firebase/rules-unit-testing";
+import {
+  initializeTestEnvironment,
+  RulesTestEnvironment,
+} from "@firebase/rules-unit-testing";
 import { User } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, Timestamp } from "firebase/firestore";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { acceptInvite } from "../../src/lib/families";
@@ -20,7 +23,10 @@ const invalidInviteCases: Array<{
 }> = [
   {
     state: "expired",
-    inviteOverrides: { expiresAt: new Date(Date.now() - 60_000).toISOString() },
+    inviteOverrides: {
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      expiresAtTimestamp: Timestamp.fromDate(new Date(Date.now() - 60_000)),
+    },
     message: "expired",
   },
   {
@@ -63,7 +69,7 @@ async function seedFamilyAndInvite(
     inviteOverrides?: Record<string, unknown>;
     includeProfile?: boolean;
     member?: Record<string, unknown>;
-  } = {}
+  } = {},
 ) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
@@ -85,7 +91,7 @@ async function seedFamilyAndInvite(
     if (options.member) {
       await setDoc(
         doc(firestore, `families/fam1/members/${recipientId}`),
-        options.member
+        options.member,
       );
     }
     await setDoc(doc(firestore, "invites", inviteId), {
@@ -95,6 +101,7 @@ async function seedFamilyAndInvite(
       createdBy: "alice_uid",
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAtTimestamp: Timestamp.fromDate(new Date(Date.now() + 60_000)),
       acceptedAt: null,
       acceptedBy: null,
       revokedAt: null,
@@ -149,12 +156,12 @@ describe("acceptInvite", () => {
       .firestore();
 
     await expect(
-      acceptInvite(inviteId, user, makeProfile(), firestore)
+      acceptInvite(inviteId, user, makeProfile(), firestore),
     ).resolves.toBe("fam1");
 
     const invite = await readAdminDocument(`invites/${inviteId}`);
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     const profile = await readAdminDocument(`users/${recipientId}`);
 
@@ -176,11 +183,11 @@ describe("acceptInvite", () => {
       .firestore();
 
     await expect(
-      acceptInvite(inviteId, makeUser(), makeProfile(), firestore)
+      acceptInvite(inviteId, makeUser(), makeProfile(), firestore),
     ).rejects.toThrow("Invite not found");
 
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     expect(member).toBeNull();
   });
@@ -196,13 +203,13 @@ describe("acceptInvite", () => {
         inviteId,
         { ...makeUser(), email: "other@example.com" } as User,
         makeProfile(),
-        firestore
-      )
+        firestore,
+      ),
     ).rejects.toThrow("different email address");
 
     const invite = await readAdminDocument(`invites/${inviteId}`);
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     expect(invite?.acceptedAt).toBeNull();
     expect(member).toBeNull();
@@ -218,16 +225,16 @@ describe("acceptInvite", () => {
         .firestore();
 
       await expect(
-        acceptInvite(inviteId, makeUser(), makeProfile(), firestore)
+        acceptInvite(inviteId, makeUser(), makeProfile(), firestore),
       ).rejects.toThrow(message);
 
       const inviteAfter = await readAdminDocument(`invites/${inviteId}`);
       const member = await readAdminDocument(
-        `families/fam1/members/${recipientId}`
+        `families/fam1/members/${recipientId}`,
       );
       expect(inviteAfter).toEqual(inviteBefore);
       expect(member).toBeNull();
-    }
+    },
   );
 
   it("does not overwrite an existing active Family Member", async () => {
@@ -247,12 +254,12 @@ describe("acceptInvite", () => {
       .firestore();
 
     await expect(
-      acceptInvite(inviteId, makeUser(), makeProfile(), firestore)
+      acceptInvite(inviteId, makeUser(), makeProfile(), firestore),
     ).rejects.toThrow("already a member");
 
     const invite = await readAdminDocument(`invites/${inviteId}`);
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     expect(invite?.acceptedAt).toBeNull();
     expect(member?.admin).toBe(true);
@@ -266,12 +273,12 @@ describe("acceptInvite", () => {
       .firestore();
 
     await expect(
-      acceptInvite(inviteId, makeUser(), makeProfile(), firestore)
+      acceptInvite(inviteId, makeUser(), makeProfile(), firestore),
     ).rejects.toThrow();
 
     const invite = await readAdminDocument(`invites/${inviteId}`);
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     const profile = await readAdminDocument(`users/${recipientId}`);
     expect(invite?.acceptedAt).toBeNull();
@@ -290,10 +297,14 @@ describe("acceptInvite", () => {
       acceptInvite(inviteId, makeUser(), makeProfile(), firestore),
     ]);
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
     const member = await readAdminDocument(
-      `families/fam1/members/${recipientId}`
+      `families/fam1/members/${recipientId}`,
     );
     expect(member?.userId).toBe(recipientId);
   });

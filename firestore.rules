@@ -10,24 +10,154 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function familyPath(familyId) {
+      return /databases/$(database)/documents/families/$(familyId);
+    }
+
+    function memberPath(familyId, memberId) {
+      return /databases/$(database)/documents/families/$(familyId)/members/$(memberId);
+    }
+
+    function isMember(familyId, memberId) {
+      let path = memberPath(familyId, memberId);
+      return signedIn() && exists(path) && get(path).data.get('removedAt', null) == null;
+    }
+
     function isFamilyMember(familyId) {
-      let memberPath = /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
-      return signedIn() &&
-        exists(memberPath) &&
-        get(memberPath).data.get('removedAt', null) == null;
+      return isMember(familyId, request.auth.uid);
     }
 
     function isFamilyAdmin(familyId) {
-      let memberPath = /databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid);
-      return isFamilyMember(familyId) &&
-        get(memberPath).data.get('admin', false) == true;
+      let path = memberPath(familyId, request.auth.uid);
+      return isFamilyMember(familyId) && get(path).data.get('admin', false) == true;
+    }
+
+    function isActiveAdultMember(familyId, memberId) {
+      let path = memberPath(familyId, memberId);
+      return isMember(familyId, memberId) && get(path).data.get('kind', '') == 'adult';
     }
 
     function isGuardian(familyId, memberId) {
-      let childPath = /databases/$(database)/documents/families/$(familyId)/members/$(memberId);
-      return signedIn() &&
-        exists(childPath) &&
-        request.auth.uid in get(childPath).data.get('guardianIds', []);
+      let path = memberPath(familyId, memberId);
+      return isActiveAdultMember(familyId, request.auth.uid) && exists(path) &&
+        request.auth.uid in get(path).data.get('guardianIds', []);
+    }
+
+    function validGuardianChange(familyId) {
+      let oldGuardians = resource.data.get('guardianIds', []).toSet();
+      let newGuardians = request.resource.data.get('guardianIds', []).toSet();
+      let addedGuardians = newGuardians.difference(oldGuardians);
+      let mutation = request.resource.data.get('guardianChange', {});
+      return request.resource.data.get('guardianIds', []) is list &&
+        request.resource.data.guardianIds.size() > 0 &&
+        addedGuardians.size() <= 1 &&
+        (addedGuardians.size() == 0 ||
+          (addedGuardians.hasOnly([mutation.get('guardianId', '')]) &&
+            mutation.get('revision', '') is string &&
+            mutation.get('revision', '') != resource.data.get('guardianChange', {}).get('revision', '') &&
+            isActiveAdultMember(familyId, mutation.get('guardianId', ''))));
+    }
+
+    function adminCountMemberTransitionIsValid(familyId, memberId, oldCount, newCount) {
+      let targetPath = memberPath(familyId, memberId);
+      let oldMember = get(targetPath).data;
+      let newMember = getAfter(targetPath).data;
+      let oldAdmin = oldMember.get('admin', false) == true &&
+        oldMember.get('removedAt', null) == null;
+      let newAdmin = newMember.get('admin', false) == true &&
+        newMember.get('removedAt', null) == null;
+      let promoted = !oldAdmin && newAdmin && newMember.get('kind', '') == 'adult';
+      let demoted = oldAdmin && !newAdmin && newMember.get('removedAt', null) == null;
+      let removed = oldAdmin && newMember.get('removedAt', null) != null;
+      return exists(targetPath) && getAfter(targetPath) != null &&
+        oldCount is int && newCount is int &&
+        ((newCount == oldCount + 1 && promoted) ||
+          (oldCount > 1 && newCount == oldCount - 1 && (demoted || removed)));
+    }
+
+    function familyAdminCountChangeIsValid(familyId) {
+      let change = request.resource.data.get('adminCountChange', {});
+      let memberId = change.get('memberId', '');
+      let oldCount = resource.data.get('adminCount', null);
+      let newCount = request.resource.data.get('adminCount', null);
+      return oldCount is int && newCount is int &&
+        change.get('revision', '') is string &&
+        change.get('revision', '') != resource.data.get('adminCountChange', {}).get('revision', '') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['adminCount', 'adminCountChange']) &&
+        adminCountMemberTransitionIsValid(familyId, memberId, oldCount, newCount);
+    }
+
+    function matchingAdminCountChange(familyId, memberId, delta) {
+      let family = familyPath(familyId);
+      let before = get(family).data;
+      let after = getAfter(family).data;
+      let change = after.get('adminCountChange', {});
+      return before.get('adminCount', null) is int &&
+        after.get('adminCount', null) is int &&
+        change.get('memberId', '') == memberId &&
+        change.get('revision', '') is string &&
+        change.get('revision', '') != before.get('adminCountChange', {}).get('revision', '') &&
+        after.adminCount == before.adminCount + delta &&
+        (delta == 1 || before.adminCount > 1);
+    }
+
+    function initialAdminCreation(familyId, memberId) {
+      let path = familyPath(familyId);
+      let family = getAfter(path).data;
+      return memberId == request.auth.uid &&
+        !exists(path) && getAfter(path) != null &&
+        family.get('createdBy', '') == request.auth.uid &&
+        family.get('adminCount', 0) == 1 &&
+        request.resource.data.get('kind', '') == 'adult' &&
+        request.resource.data.get('admin', false) == true &&
+        request.resource.data.get('userId', '') == request.auth.uid &&
+        request.resource.data.get('removedAt', null) == null;
+    }
+
+    function validInviteAcceptance(familyId, memberId) {
+      let inviteId = request.resource.data.get('joinedByInviteId', '');
+      let path = /databases/$(database)/documents/invites/$(inviteId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return memberId == request.auth.uid &&
+        request.resource.data.get('kind', '') == 'adult' &&
+        request.resource.data.get('admin', false) == false &&
+        request.resource.data.get('userId', '') == request.auth.uid &&
+        before.get('familyId', '') == familyId &&
+        before.get('normalizedEmail', '') == request.auth.token.email.lower() &&
+        before.get('expiresAtTimestamp', null) is timestamp &&
+        request.time < before.expiresAtTimestamp &&
+        before.get('acceptedAt', null) == null &&
+        before.get('revokedAt', null) == null &&
+        before.get('rejectedAt', null) == null &&
+        after.get('acceptedBy', '') == request.auth.uid &&
+        after.get('acceptedAt', null) != null;
+    }
+
+    function inviteUpdateByRecipient() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return request.auth.token.email != null &&
+        resource.data.get('normalizedEmail', '') == request.auth.token.email.lower() &&
+        resource.data.get('expiresAtTimestamp', null) is timestamp &&
+        request.time < resource.data.expiresAtTimestamp &&
+        resource.data.get('acceptedAt', null) == null &&
+        resource.data.get('revokedAt', null) == null &&
+        resource.data.get('rejectedAt', null) == null &&
+        ((changed.hasOnly(['acceptedAt', 'acceptedBy']) &&
+          request.resource.data.get('acceptedBy', '') == request.auth.uid &&
+          request.resource.data.get('acceptedAt', null) is string) ||
+         (changed.hasOnly(['rejectedAt', 'rejectedBy']) &&
+          request.resource.data.get('rejectedBy', '') == request.auth.uid &&
+          request.resource.data.get('rejectedAt', null) is string));
+    }
+
+    function inviteRevocationByAdmin() {
+      return isFamilyAdmin(resource.data.familyId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revokedAt', 'revokedBy']) &&
+        resource.data.get('acceptedAt', null) == null &&
+        resource.data.get('rejectedAt', null) == null &&
+        request.resource.data.get('revokedBy', '') == request.auth.uid &&
+        request.resource.data.get('revokedAt', null) is string;
     }
 
     match /users/{userId} {
@@ -36,88 +166,112 @@ service cloud.firestore {
     }
 
     match /families/{familyId} {
-      allow read: if isFamilyMember(familyId) || (signedIn() && resource.data.createdBy == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
-      allow update: if isFamilyAdmin(familyId);
+      allow read: if isFamilyMember(familyId);
+      allow create: if signedIn() &&
+        request.resource.data.get('createdBy', '') == request.auth.uid &&
+        request.resource.data.get('adminCount', 0) == 1 &&
+        getAfter(memberPath(familyId, request.auth.uid)) != null &&
+        getAfter(memberPath(familyId, request.auth.uid)).data.get('admin', false) == true &&
+        getAfter(memberPath(familyId, request.auth.uid)).data.get('removedAt', null) == null;
+      allow update: if isFamilyAdmin(familyId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['adminCount', 'adminCountChange']) ||
+          familyAdminCountChangeIsValid(familyId));
       allow delete: if false;
 
       match /members/{memberId} {
-        allow read: if isFamilyMember(familyId) || (signedIn() && memberId == request.auth.uid);
+        allow read: if isFamilyMember(familyId) ||
+          (signedIn() && memberId == request.auth.uid && resource.data.get('userId', '') == request.auth.uid);
         allow create: if signedIn() && (
-          (memberId == request.auth.uid && request.resource.data.get('admin', false) == true) ||
-          (memberId == request.auth.uid && request.resource.data.get('kind', '') == 'adult') ||
-          (isFamilyMember(familyId) && request.resource.data.get('kind', '') == 'managedChild')
+          initialAdminCreation(familyId, memberId) ||
+          validInviteAcceptance(familyId, memberId) ||
+          (isFamilyAdmin(familyId) &&
+            request.resource.data.get('kind', '') == 'managedChild' &&
+            request.resource.data.get('admin', false) == false &&
+            request.resource.data.get('createdBy', '') == request.auth.uid &&
+            request.resource.data.get('guardianIds', []) is list &&
+            request.resource.data.guardianIds.size() == 1 &&
+            request.auth.uid in request.resource.data.get('guardianIds', []))
         );
-        allow update: if isFamilyAdmin(familyId) ||
-          (signedIn() && memberId == request.auth.uid) ||
-          (isFamilyMember(familyId) && resource.data.get('kind', '') == 'managedChild' && isGuardian(familyId, memberId));
+        allow update: if signedIn() && (
+          (isFamilyAdmin(familyId) &&
+            resource.data.get('kind', '') == 'adult' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['admin']) &&
+            request.resource.data.get('admin', false) != resource.data.get('admin', false) &&
+            matchingAdminCountChange(familyId, memberId,
+              request.resource.data.get('admin', false) ? 1 : -1)) ||
+          ((isFamilyAdmin(familyId) || memberId == request.auth.uid) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['removedAt']) &&
+            resource.data.get('removedAt', null) == null &&
+            request.resource.data.get('removedAt', null) != null &&
+            (resource.data.get('admin', false) != true ||
+              (isFamilyAdmin(familyId) && matchingAdminCountChange(familyId, memberId, -1)))) ||
+          (memberId == request.auth.uid &&
+            resource.data.get('kind', '') == 'adult' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])) ||
+          (resource.data.get('kind', '') == 'managedChild' &&
+            (isFamilyAdmin(familyId) || isGuardian(familyId, memberId)) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guardianIds', 'guardianChange']) &&
+            validGuardianChange(familyId)) ||
+          (resource.data.get('removedAt', null) != null &&
+            validInviteAcceptance(familyId, memberId))
+        );
         allow delete: if false;
       }
     }
 
-    // Allow users to query their own memberships across all families (collectionGroup query)
+    // Collection-group queries may read a user's own membership records across Families.
     match /{path=**}/members/{memberId} {
       allow read: if signedIn() && (
-        resource.data.userId == request.auth.uid ||
+        resource.data.get('userId', '') == request.auth.uid ||
         memberId == request.auth.uid
       );
     }
 
     match /invites/{inviteId} {
-      // Family admins or the invited user (matched by normalized email) can read, list, and update invites
-      allow read, list: if signedIn() && (
-        resource != null && (
-          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower()) ||
-          resource.data.createdBy == request.auth.uid ||
+      allow read: if signedIn() && (
+        (resource != null && (
+          (request.auth.token.email != null && resource.data.get('normalizedEmail', '') == request.auth.token.email.lower()) ||
+          resource.data.get('createdBy', '') == request.auth.uid ||
           isFamilyAdmin(resource.data.familyId)
-        )
-        ||
-        (resource == null && request.auth.token.email != null)
+        )) || (resource == null && request.auth.token.email != null)
       );
-      allow create: if signedIn() && isFamilyAdmin(request.resource.data.familyId);
-      allow update: if signedIn() && (
-        resource != null && (
-          (request.auth.token.email != null && resource.data.normalizedEmail == request.auth.token.email.lower()) ||
-          isFamilyAdmin(resource.data.familyId)
-        )
-      );
+      allow create: if signedIn() &&
+        isFamilyAdmin(request.resource.data.familyId) &&
+        request.resource.data.get('createdBy', '') == request.auth.uid &&
+        request.resource.data.get('normalizedEmail', '') is string &&
+        request.resource.data.get('expiresAtTimestamp', null) is timestamp &&
+        request.resource.data.expiresAtTimestamp > request.time &&
+        request.resource.data.get('acceptedAt', null) == null &&
+        request.resource.data.get('revokedAt', null) == null &&
+        request.resource.data.get('rejectedAt', null) == null;
+      allow update: if signedIn() && (inviteUpdateByRecipient() || inviteRevocationByAdmin());
       allow delete: if false;
     }
 
     match /wishes/{wishId} {
-      allow read: if signedIn() && (
-        resource == null ||
-        isFamilyMember(resource.data.familyId)
-      );
+      allow read: if signedIn() && isFamilyMember(resource.data.familyId);
       allow create: if signedIn() &&
-        request.resource.data.creatorId == request.auth.uid &&
+        request.resource.data.get('creatorId', '') == request.auth.uid &&
         isFamilyMember(request.resource.data.familyId) &&
-        (
-          request.resource.data.recipientId == request.auth.uid ||
-          isGuardian(request.resource.data.familyId, request.resource.data.recipientId)
-        );
+        (request.resource.data.get('recipientId', '') == request.auth.uid ||
+          isGuardian(request.resource.data.familyId, request.resource.data.recipientId));
       allow update: if signedIn() &&
         isFamilyMember(resource.data.familyId) &&
-        request.resource.data.familyId == resource.data.familyId &&
-        (
-          resource.data.creatorId == request.auth.uid ||
-          resource.data.recipientId == request.auth.uid ||
-          isGuardian(resource.data.familyId, resource.data.recipientId)
-        );
+        request.resource.data.get('familyId', '') == resource.data.familyId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'status', 'deletedAt']) &&
+        (resource.data.get('recipientId', '') == request.auth.uid ||
+          isGuardian(resource.data.familyId, resource.data.recipientId));
       allow delete: if false;
     }
 
     match /giftIdeas/{giftIdeaId} {
       allow read: if signedIn() && (
         resource == null || (
-          request.auth.uid != resource.data.recipientId && (
-            resource.data.creatorId == request.auth.uid ||
-            ('familyId' in resource.data && (
-              isFamilyMember(resource.data.familyId) ||
-              isGuardian(resource.data.familyId, resource.data.recipientId)
-            )) ||
-            !('familyId' in resource.data)
-          )
+          request.auth.uid != resource.data.recipientId &&
+          (resource.data.creatorId == request.auth.uid ||
+            ('familyId' in resource.data &&
+              (isFamilyMember(resource.data.familyId) || isGuardian(resource.data.familyId, resource.data.recipientId))) ||
+            !('familyId' in resource.data))
         )
       );
       allow create: if signedIn() &&
@@ -130,16 +284,16 @@ service cloud.firestore {
     match /claims/{claimId} {
       allow get: if signedIn() && (
         resource == null || (
-          request.auth.uid != resource.data.get('recipientId', '') && (
-            resource.data.get('claimantId', '') == request.auth.uid ||
+          request.auth.uid != resource.data.get('recipientId', '') &&
+          (resource.data.get('claimantId', '') == request.auth.uid ||
             ('familyId' in resource.data && isFamilyMember(resource.data.familyId)) ||
-            !('familyId' in resource.data)
-          )
+            !('familyId' in resource.data))
         )
       );
       allow list: if signedIn() && (
         resource.data.get('claimantId', '') == request.auth.uid ||
-        (request.auth.uid != resource.data.get('recipientId', '') && ('familyId' in resource.data && isFamilyMember(resource.data.familyId)))
+        (request.auth.uid != resource.data.get('recipientId', '') &&
+          'familyId' in resource.data && isFamilyMember(resource.data.familyId))
       );
       allow create: if signedIn() &&
         'recipientId' in request.resource.data &&

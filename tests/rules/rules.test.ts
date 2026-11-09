@@ -1,30 +1,16 @@
 import { describe, it, beforeAll, afterAll, beforeEach } from "vitest";
 import {
-  initializeTestEnvironment,
   assertFails,
   assertSucceeds,
-  RulesTestEnvironment,
+  type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import { doc, getDoc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createFirestoreTestEnvironment } from "../helpers/firestore";
 
 let testEnv: RulesTestEnvironment;
 
 beforeAll(async () => {
-  process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080";
-  const rules = readFileSync(
-    resolve(process.cwd(), "firestore.rules"),
-    "utf8"
-  );
-  testEnv = await initializeTestEnvironment({
-    projectId: "christmas-wishlist-test",
-    firestore: {
-      rules,
-      host: "127.0.0.1",
-      port: 8080,
-    },
-  });
+  testEnv = await createFirestoreTestEnvironment("christmas-wishlist-test");
 });
 
 afterAll(async () => {
@@ -293,7 +279,7 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         claimantId: "alice",
         familyId: "fam1",
         createdAt: new Date().toISOString(),
-      })
+      }),
     );
 
     // Bob successfully claims the wish
@@ -305,7 +291,7 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         claimantId: "bob",
         familyId: "fam1",
         createdAt: new Date().toISOString(),
-      })
+      }),
     );
 
     // Charlie tries to claim the same wish (update/overwrite existing claim doc) - MUST FAIL
@@ -317,7 +303,7 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         claimantId: "charlie",
         familyId: "fam1",
         createdAt: new Date().toISOString(),
-      })
+      }),
     );
 
     // Bob can unclaim (delete his own claim)
@@ -332,23 +318,38 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         claimantId: "charlie",
         familyId: "fam1",
         createdAt: new Date().toISOString(),
-      })
+      }),
     );
   });
 
   it("enforces single family access and immutability on wishes", async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
-      await setDoc(doc(db, "families/fam1"), { name: "Smith", createdBy: "alice" });
-      await setDoc(doc(db, "families/fam1/members/alice"), { kind: "adult", userId: "alice" });
-      await setDoc(doc(db, "families/fam1/members/bob"), { kind: "adult", userId: "bob" });
+      await setDoc(doc(db, "families/fam1"), {
+        name: "Smith",
+        createdBy: "alice",
+      });
+      await setDoc(doc(db, "families/fam1/members/alice"), {
+        kind: "adult",
+        userId: "alice",
+      });
+      await setDoc(doc(db, "families/fam1/members/bob"), {
+        kind: "adult",
+        userId: "bob",
+      });
       await setDoc(doc(db, "families/fam1/members/exmember"), {
         kind: "adult",
         userId: "exmember",
         removedAt: new Date().toISOString(),
       });
-      await setDoc(doc(db, "families/fam2"), { name: "Jones", createdBy: "stranger" });
-      await setDoc(doc(db, "families/fam2/members/stranger"), { kind: "adult", userId: "stranger" });
+      await setDoc(doc(db, "families/fam2"), {
+        name: "Jones",
+        createdBy: "stranger",
+      });
+      await setDoc(doc(db, "families/fam2/members/stranger"), {
+        kind: "adult",
+        userId: "stranger",
+      });
       await setDoc(doc(db, "wishes/wish1"), {
         recipientId: "alice",
         creatorId: "alice",
@@ -379,21 +380,21 @@ describe("Firestore Security Rules - Core Privacy Model", () => {
         title: "Sneakers",
         familyId: "fam1",
         status: "available",
-      })
+      }),
     );
 
     // Alice cannot change familyId to fam2
     await assertFails(
       updateDoc(doc(aliceDb, "wishes/wish1"), {
         familyId: "fam2",
-      })
+      }),
     );
 
     // Alice can update title
     await assertSucceeds(
       updateDoc(doc(aliceDb, "wishes/wish1"), {
         title: "Cookbook",
-      })
+      }),
     );
   });
 });

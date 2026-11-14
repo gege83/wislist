@@ -18,6 +18,7 @@ An operational Dave Farley 4-layer acceptance testing framework located in `test
 - [Research Multi-User Subcutaneous App Context Isolation](issues/02-multi-user-subcutaneous-isolation.md): Isolated concurrent React sessions use detached DOM containers with `within(container)`, direct `AuthContext` injection, scoped `authenticatedContext(uid)` Firestore instances, and a `FirebaseContext` DI seam.
 - [Prototype Domain DSL and Driver Interface](issues/01-domain-dsl-and-driver-prototype.md): Proven 4-layer architecture in `tests/acceptance/prototype/` with type-safe `WishlistAppDsl`/`MemberDsl` and decoupled `WishlistDriver` interface.
 - [Executable Specification Matrix for Surprise Privacy](issues/03-surprise-privacy-specification-matrix.md): Established the 6-scenario canonical matrix covering wish/idea claiming, unclaiming, secrecy, self-claim prohibition, and concurrent claim race resolution.
+- [Configure Acceptance Test Harness and Runner](issues/04-acceptance-test-harness-and-scripts.md): Configured `vitest.acceptance.config.ts`, `tests/acceptance/harness/`, and `npm run test:acceptance` / `test:acceptance:local`.
 
 ## Not yet specified
 

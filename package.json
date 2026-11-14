@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test:rules": "vitest run tests/rules",
     "test:emulators": "firebase emulators:exec --only firestore \"vitest run\"",
+    "test:acceptance": "firebase emulators:exec --only firestore \"vitest run -c vitest.acceptance.config.ts\"",
+    "test:acceptance:local": "vitest run -c vitest.acceptance.config.ts",
     "migrate:family-admin-count": "node scripts/migrate-family-admin-count.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b",

@@ -42,6 +42,7 @@ import {
   refreshInviteLists,
 } from "./lib/inviteRefresh";
 import { useFamilyWorkspace } from "./lib/familyWorkspace";
+import { useFirestore } from "./context/FirebaseContext";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
 
@@ -87,10 +88,11 @@ export function App() {
   const [currentView, setCurrentView] = useState<
     "family" | "wishes" | "claims" | "invites"
   >("family");
+  const db = useFirestore();
   const projectId = firebaseApp.options.projectId ?? "local emulator";
 
   // ── Family data ──────────────────────────────────────────────────────────
-  const workspace = useFamilyWorkspace(user, profile);
+  const workspace = useFamilyWorkspace(user, profile, db);
   const {
     families: allUserFamilies,
     family,
@@ -186,6 +188,7 @@ export function App() {
       (err) => {
         console.error("My wishes subscription error:", err);
       },
+      db,
     );
 
     return () => {
@@ -329,7 +332,7 @@ export function App() {
     setClaimConflict(null);
     try {
       if (claims[compositeId]) {
-        await unclaimItem(compositeId, user);
+        await unclaimItem(compositeId, user, db);
         updateClaims((prev) => {
           const next = { ...prev };
           delete next[compositeId];
@@ -342,6 +345,7 @@ export function App() {
           recipientId,
           user,
           family.id,
+          db,
         );
         updateClaims((prev) => ({ ...prev, [compositeId]: claim }));
       }
@@ -368,7 +372,7 @@ export function App() {
   const handleDeleteWish = async (wishId: string) => {
     if (!window.confirm("Are you sure you want to delete this wish?")) return;
     try {
-      await deleteWish(wishId);
+      await deleteWish(wishId, db);
     } catch (err) {
       console.error("Delete wish error:", err);
     }
@@ -381,7 +385,7 @@ export function App() {
     )
       return;
     try {
-      await deleteGiftIdea(ideaId, user);
+      await deleteGiftIdea(ideaId, user, db);
     } catch (err) {
       console.error("Delete gift idea error:", err);
     }

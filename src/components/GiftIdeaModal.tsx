@@ -3,6 +3,7 @@ import { User } from "firebase/auth";
 import { X, LockKeyhole } from "lucide-react";
 import { createGiftIdea } from "../lib/giftIdeas";
 import { GiftIdea } from "../types";
+import { useFirestore } from "../context/FirebaseContext";
 
 interface GiftIdeaModalProps {
   currentUser: User;
@@ -21,6 +22,7 @@ export function GiftIdeaModal({
   onClose,
   onSuccess,
 }: GiftIdeaModalProps) {
+  const db = useFirestore();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
@@ -44,7 +46,8 @@ export function GiftIdeaModal({
           title: title.trim(),
           description: description.trim(),
         },
-        currentUser
+        currentUser,
+        db,
       );
       onSuccess(newIdea);
     } catch (err) {

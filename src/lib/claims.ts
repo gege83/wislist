@@ -32,15 +32,16 @@ export async function claimItem(
   recipientId: string,
   currentUser: User,
   familyId?: string,
+  firestoreInstance: Firestore = db,
 ): Promise<Claim> {
   if (recipientId === currentUser.uid) {
     throw new Error("You cannot claim an item intended for yourself.");
   }
 
   const claimId = `${targetType}_${targetId}`;
-  const claimRef = doc(db, "claims", claimId);
+  const claimRef = doc(firestoreInstance, "claims", claimId);
 
-  return await runTransaction(db, async (transaction) => {
+  return await runTransaction(firestoreInstance, async (transaction) => {
     const claimDoc = await transaction.get(claimRef);
     if (claimDoc.exists()) {
       throw new Error("This item has already been claimed.");
@@ -64,8 +65,9 @@ export async function claimItem(
 export async function unclaimItem(
   claimId: string,
   currentUser: User,
+  firestoreInstance: Firestore = db,
 ): Promise<void> {
-  const claimRef = doc(db, "claims", claimId);
+  const claimRef = doc(firestoreInstance, "claims", claimId);
   const snap = await getDoc(claimRef);
 
   if (!snap.exists()) {
@@ -82,8 +84,9 @@ export async function unclaimItem(
 export async function getClaimsForFamily(
   familyId: string,
   currentUserId: string,
+  firestoreInstance: Firestore = db,
 ): Promise<Record<string, Claim>> {
-  const q = query(collection(db, "claims"), where("familyId", "==", familyId));
+  const q = query(collection(firestoreInstance, "claims"), where("familyId", "==", familyId));
 
   const snap = await getDocs(q);
   const claimsMap: Record<string, Claim> = {};

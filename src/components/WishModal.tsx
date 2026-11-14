@@ -3,6 +3,7 @@ import { User } from "firebase/auth";
 import { X } from "lucide-react";
 import { createWish, updateWish } from "../lib/wishes";
 import { Wish } from "../types";
+import { useFirestore } from "../context/FirebaseContext";
 
 interface WishModalProps {
   currentUser: User;
@@ -23,6 +24,7 @@ export function WishModal({
   onClose,
   onSuccess,
 }: WishModalProps) {
+  const db = useFirestore();
   const isEditing = !!existingWish;
   const [title, setTitle] = useState(existingWish?.title ?? "");
   const [description, setDescription] = useState(existingWish?.description ?? "");
@@ -45,10 +47,14 @@ export function WishModal({
 
     try {
       if (isEditing && existingWish) {
-        await updateWish(existingWish.id, {
-          title: title.trim(),
-          description: description.trim(),
-        });
+        await updateWish(
+          existingWish.id,
+          {
+            title: title.trim(),
+            description: description.trim(),
+          },
+          db,
+        );
         onSuccess({
           ...existingWish,
           title: title.trim(),
@@ -62,7 +68,8 @@ export function WishModal({
             description: description.trim(),
             familyId: currentFamilyId,
           },
-          currentUser
+          currentUser,
+          db,
         );
         onSuccess(newWish);
       }

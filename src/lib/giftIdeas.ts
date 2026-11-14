@@ -37,6 +37,7 @@ export interface CreateGiftIdeaInput {
 export async function createGiftIdea(
   input: CreateGiftIdeaInput,
   currentUser: User,
+  firestoreInstance: Firestore = db,
 ): Promise<GiftIdea> {
   if (input.recipientId === currentUser.uid) {
     throw new Error("You cannot add a gift idea for yourself.");
@@ -46,7 +47,7 @@ export async function createGiftIdea(
     throw new Error("Gift idea title is required.");
   }
 
-  const ideaRef = doc(collection(db, "giftIdeas"));
+  const ideaRef = doc(collection(firestoreInstance, "giftIdeas"));
   const ideaId = ideaRef.id;
   const now = new Date().toISOString();
 
@@ -78,6 +79,7 @@ export async function getGiftIdeasForRecipient(
   recipientId: string,
   familyId: string,
   currentUserId: string,
+  firestoreInstance: Firestore = db,
 ): Promise<GiftIdea[]> {
   // Surprise privacy: never attempt to query gift ideas if current user is the recipient
   if (recipientId === currentUserId) {
@@ -85,7 +87,7 @@ export async function getGiftIdeasForRecipient(
   }
 
   const q = query(
-    collection(db, "giftIdeas"),
+    collection(firestoreInstance, "giftIdeas"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
   );
@@ -106,8 +108,9 @@ export async function getGiftIdeasForRecipient(
 export async function deleteGiftIdea(
   giftIdeaId: string,
   currentUser: User,
+  firestoreInstance: Firestore = db,
 ): Promise<void> {
-  const ideaRef = doc(db, "giftIdeas", giftIdeaId);
+  const ideaRef = doc(firestoreInstance, "giftIdeas", giftIdeaId);
   const snap = await getDoc(ideaRef);
 
   if (!snap.exists()) return;

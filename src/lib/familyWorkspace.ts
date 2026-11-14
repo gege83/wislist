@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { User } from "firebase/auth";
+import type { Firestore } from "firebase/firestore";
+import { db } from "./firebase";
 import {
   Claim,
   Family,
@@ -55,6 +57,7 @@ const initial: FamilyWorkspaceSnapshot = {
 export function useFamilyWorkspace(
   user: User | null,
   profile: UserProfile | null,
+  firestoreInstance: Firestore = db,
 ): FamilyWorkspace {
   const [state, setState] = useState(initial);
   const loadVersion = useRef(0);
@@ -86,6 +89,7 @@ export function useFamilyWorkspace(
         const families = await getUserFamilies(
           user.uid,
           targetFamilyId || profile?.lastSelectedFamilyId,
+          firestoreInstance,
         );
         if (version !== loadVersion.current) return;
         const selectedFamily =
@@ -97,7 +101,7 @@ export function useFamilyWorkspace(
           setState({ ...initial, families, loading: false });
           return;
         }
-        const members = await getFamilyMembers(selectedFamily.id);
+        const members = await getFamilyMembers(selectedFamily.id, firestoreInstance);
         if (version !== loadVersion.current) return;
         const previous = selectedMemberRef.current;
         const others = members.filter((member) => member.userId !== user.uid);
@@ -179,6 +183,7 @@ export function useFamilyWorkspace(
           setState((current) => ({ ...current, wishes, dataLoading: false }));
       },
       handleError,
+      firestoreInstance,
     );
     const stopIdeas = subscribeGiftIdeasForRecipient(
       memberId,
@@ -188,6 +193,7 @@ export function useFamilyWorkspace(
         if (active) setState((current) => ({ ...current, giftIdeas }));
       },
       handleError,
+      firestoreInstance,
     );
     const stopClaims = subscribeClaimsForRecipient(
       familyId,
@@ -197,6 +203,7 @@ export function useFamilyWorkspace(
         if (active) setState((current) => ({ ...current, claims }));
       },
       handleError,
+      firestoreInstance,
     );
     return () => {
       active = false;
@@ -204,7 +211,7 @@ export function useFamilyWorkspace(
       stopIdeas();
       stopClaims();
     };
-  }, [familyId, memberId, user]);
+  }, [familyId, memberId, user, firestoreInstance]);
 
   const selectFamily = useCallback(
     (familyId: string) => refresh(familyId),
@@ -228,7 +235,7 @@ export function useFamilyWorkspace(
   const refreshMembers = useCallback(async () => {
     const familyId = state.family?.id;
     if (!familyId) return;
-    const members = await getFamilyMembers(familyId);
+    const members = await getFamilyMembers(familyId, firestoreInstance);
     setState((current) => {
       const selectedMember = current.selectedMember
         ? members.find((member) => member.id === current.selectedMember?.id)

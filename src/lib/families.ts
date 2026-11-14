@@ -68,8 +68,11 @@ export async function createFamily(
   return familyData;
 }
 
-export async function getFamilyById(familyId: string): Promise<Family | null> {
-  const familyDoc = await getDoc(doc(db, "families", familyId));
+export async function getFamilyById(
+  familyId: string,
+  firestoreInstance: Firestore = db,
+): Promise<Family | null> {
+  const familyDoc = await getDoc(doc(firestoreInstance, "families", familyId));
   if (!familyDoc.exists()) return null;
   const data = familyDoc.data();
   if (data.deletedAt) return null;
@@ -87,6 +90,7 @@ export async function getFamilyById(familyId: string): Promise<Family | null> {
 export async function getUserFamilies(
   userId: string,
   knownFamilyId?: string | null,
+  firestoreInstance: Firestore = db,
 ): Promise<Family[]> {
   const familyIds = new Set<string>();
   if (knownFamilyId) {
@@ -96,7 +100,7 @@ export async function getUserFamilies(
   try {
     // Query all members subcollections across families where userId matches
     const membersQuery = query(
-      collectionGroup(db, "members"),
+      collectionGroup(firestoreInstance, "members"),
       where("userId", "==", userId),
     );
 
@@ -120,7 +124,7 @@ export async function getUserFamilies(
 
   const families: Family[] = [];
   for (const familyId of familyIds) {
-    const family = await getFamilyById(familyId);
+    const family = await getFamilyById(familyId, firestoreInstance);
     if (family) {
       families.push(family);
     }

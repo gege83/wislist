@@ -38,8 +38,9 @@ export interface CreateWishInput {
 export async function createWish(
   input: CreateWishInput,
   currentUser: User,
+  firestoreInstance: Firestore = db,
 ): Promise<Wish> {
-  const wishRef = doc(collection(db, "wishes"));
+  const wishRef = doc(collection(firestoreInstance, "wishes"));
   const wishId = wishRef.id;
   const now = new Date().toISOString();
 
@@ -80,8 +81,9 @@ export async function createWish(
 export async function updateWish(
   wishId: string,
   updates: Partial<Pick<Wish, "title" | "description">>,
+  firestoreInstance: Firestore = db,
 ): Promise<void> {
-  const wishRef = doc(db, "wishes", wishId);
+  const wishRef = doc(firestoreInstance, "wishes", wishId);
   const patch: Record<string, unknown> = {};
 
   if (updates.title !== undefined) {
@@ -98,8 +100,11 @@ export async function updateWish(
   await updateDoc(wishRef, patch);
 }
 
-export async function deleteWish(wishId: string): Promise<void> {
-  const wishRef = doc(db, "wishes", wishId);
+export async function deleteWish(
+  wishId: string,
+  firestoreInstance: Firestore = db,
+): Promise<void> {
+  const wishRef = doc(firestoreInstance, "wishes", wishId);
   await updateDoc(wishRef, {
     status: "deleted",
     deletedAt: new Date().toISOString(),
@@ -109,9 +114,10 @@ export async function deleteWish(wishId: string): Promise<void> {
 export async function getWishesForFamilyMember(
   recipientId: string,
   familyId: string,
+  firestoreInstance: Firestore = db,
 ): Promise<Wish[]> {
   const q = query(
-    collection(db, "wishes"),
+    collection(firestoreInstance, "wishes"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
     where("status", "==", "available"),
@@ -131,9 +137,10 @@ export async function getWishesForFamilyMember(
 export async function getActiveWishesForRecipient(
   recipientId: string,
   familyId: string,
+  firestoreInstance: Firestore = db,
 ): Promise<Wish[]> {
   const q = query(
-    collection(db, "wishes"),
+    collection(firestoreInstance, "wishes"),
     where("recipientId", "==", recipientId),
     where("familyId", "==", familyId),
     where("status", "==", "available"),
@@ -150,8 +157,11 @@ export async function getActiveWishesForRecipient(
   return wishes;
 }
 
-export async function getWishById(wishId: string): Promise<Wish | null> {
-  const snap = await getDoc(doc(db, "wishes", wishId));
+export async function getWishById(
+  wishId: string,
+  firestoreInstance: Firestore = db,
+): Promise<Wish | null> {
+  const snap = await getDoc(doc(firestoreInstance, "wishes", wishId));
   if (!snap.exists()) return null;
   const data = snap.data();
   return mapWish(snap.id, data);

@@ -4,6 +4,7 @@ import { useAuth } from "../context/authContext";
 import { normalizeEmail } from "../lib/auth";
 import { createFamily, getPendingInvitesForEmail, acceptInvite, rejectInvite } from "../lib/families";
 import { Invite, UserProfile } from "../types";
+import { useFirestore } from "../context/FirebaseContext";
 
 interface FamilySetupScreenProps {
   onFamilyReady: (familyId: string) => void;
@@ -11,6 +12,7 @@ interface FamilySetupScreenProps {
 }
 
 export function FamilySetupScreen({ onFamilyReady, error: externalError }: FamilySetupScreenProps) {
+  const db = useFirestore();
   const { user, profile, refreshProfile } = useAuth();
   const [tab, setTab] = useState<"create" | "invite">("create");
   const [familyName, setFamilyName] = useState("");
@@ -88,7 +90,7 @@ export function FamilySetupScreen({ onFamilyReady, error: externalError }: Famil
     setCreating(true);
     try {
       const resolvedProfile = resolveProfile();
-      const family = await createFamily(familyName.trim(), user, resolvedProfile);
+      const family = await createFamily(familyName.trim(), user, resolvedProfile, db);
       try { await refreshProfile(); } catch { /* non-fatal */ }
       onFamilyReady(family.id);
     } catch (err) {

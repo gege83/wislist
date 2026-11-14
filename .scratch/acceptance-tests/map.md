@@ -19,6 +19,7 @@ An operational Dave Farley 4-layer acceptance testing framework located in `test
 - [Prototype Domain DSL and Driver Interface](issues/01-domain-dsl-and-driver-prototype.md): Proven 4-layer architecture in `tests/acceptance/prototype/` with type-safe `WishlistAppDsl`/`MemberDsl` and decoupled `WishlistDriver` interface.
 - [Executable Specification Matrix for Surprise Privacy](issues/03-surprise-privacy-specification-matrix.md): Established the 6-scenario canonical matrix covering wish/idea claiming, unclaiming, secrecy, self-claim prohibition, and concurrent claim race resolution.
 - [Configure Acceptance Test Harness and Runner](issues/04-acceptance-test-harness-and-scripts.md): Configured `vitest.acceptance.config.ts`, `tests/acceptance/harness/`, and `npm run test:acceptance` / `test:acceptance:local`.
+- [Implement Subcutaneous Driver and Executable Specifications](issues/05-implement-subcutaneous-driver-and-specs.md): Completed `FirebaseContext` DI seam, built `SubcutaneousDriver`, and authored the 6-scenario suite in `tests/acceptance/surprise-privacy.acceptance.test.ts` passing in ~1.3s against the live Firestore emulator.
 
 ## Not yet specified
 

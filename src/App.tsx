@@ -42,7 +42,7 @@ import {
   refreshInviteLists,
 } from "./lib/inviteRefresh";
 import { useFamilyWorkspace } from "./lib/familyWorkspace";
-import { useFirestore } from "./context/FirebaseContext";
+import { useFirestore } from "./context/firebaseContext";
 
 // ─── Modal helper ────────────────────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ export function App() {
     return () => {
       unsub();
     };
-  }, [userId, familyId, currentView]);
+  }, [userId, familyId, currentView, db]);
 
   // ── Load pending invites ─────────────────────────────────────────────────
   const loadPendingInvites = useCallback(async () => {

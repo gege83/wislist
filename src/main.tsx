@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AuthProvider } from "./context/AuthProvider";
-import { FirebaseProvider } from "./context/FirebaseContext";
+import { FirebaseProvider } from "./context/FirebaseProvider";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(

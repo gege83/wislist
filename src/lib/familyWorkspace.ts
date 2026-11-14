@@ -101,7 +101,10 @@ export function useFamilyWorkspace(
           setState({ ...initial, families, loading: false });
           return;
         }
-        const members = await getFamilyMembers(selectedFamily.id, firestoreInstance);
+        const members = await getFamilyMembers(
+          selectedFamily.id,
+          firestoreInstance,
+        );
         if (version !== loadVersion.current) return;
         const previous = selectedMemberRef.current;
         const others = members.filter((member) => member.userId !== user.uid);
@@ -137,7 +140,7 @@ export function useFamilyWorkspace(
         }));
       }
     },
-    [user, profile],
+    [user, profile, firestoreInstance],
   );
 
   useEffect(() => {
@@ -250,7 +253,7 @@ export function useFamilyWorkspace(
           null,
       };
     });
-  }, [state.family?.id, user?.uid]);
+  }, [state.family?.id, user?.uid, firestoreInstance]);
   const addMember = useCallback(
     (member: FamilyMember) =>
       setState((current) => ({

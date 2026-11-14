@@ -3,7 +3,7 @@ import { User } from "firebase/auth";
 import { X, LockKeyhole } from "lucide-react";
 import { createGiftIdea } from "../lib/giftIdeas";
 import { GiftIdea } from "../types";
-import { useFirestore } from "../context/FirebaseContext";
+import { useFirestore } from "../context/firebaseContext";
 
 interface GiftIdeaModalProps {
   currentUser: User;
@@ -93,7 +93,8 @@ export function GiftIdeaModal({
           >
             <LockKeyhole style={{ width: 16, height: 16, flexShrink: 0 }} />
             <span>
-              This will be hidden from <strong>{recipientName}</strong> and only visible to other family members.
+              This will be hidden from <strong>{recipientName}</strong> and only
+              visible to other family members.
             </span>
           </div>
 

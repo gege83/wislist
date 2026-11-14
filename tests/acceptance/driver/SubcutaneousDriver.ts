@@ -5,8 +5,11 @@ import type { Firestore } from "firebase/firestore";
 import { doc, setDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { App } from "../../../src/App";
-import { FirebaseProvider } from "../../../src/context/FirebaseContext";
-import { AuthContext, type AuthContextValue } from "../../../src/context/authContext";
+import { FirebaseProvider } from "../../../src/context/FirebaseProvider";
+import {
+  AuthContext,
+  type AuthContextValue,
+} from "../../../src/context/authContext";
 import type { UserProfile } from "../../../src/types";
 import {
   type WishlistDriver,
@@ -16,14 +19,28 @@ import {
   type WishView,
   type GiftIdeaView,
 } from "../prototype/WishlistDriver";
-import { createWish, getActiveWishesForRecipient, updateWish, deleteWish } from "../../../src/lib/wishes";
-import { claimItem, unclaimItem, getClaimsForFamily } from "../../../src/lib/claims";
-import { createGiftIdea, getGiftIdeasForRecipient } from "../../../src/lib/giftIdeas";
+import {
+  createWish,
+  getActiveWishesForRecipient,
+  updateWish,
+  deleteWish,
+} from "../../../src/lib/wishes";
+import {
+  claimItem,
+  unclaimItem,
+  getClaimsForFamily,
+} from "../../../src/lib/claims";
+import {
+  createGiftIdea,
+  getGiftIdeasForRecipient,
+} from "../../../src/lib/giftIdeas";
 import { createSessionContainer } from "../harness/acceptanceHarness";
 
 export class SubcutaneousSession {
   public readonly container: HTMLDivElement;
-  public readonly queries: BoundFunctions<typeof import("@testing-library/react")>;
+  public readonly queries: BoundFunctions<
+    typeof import("@testing-library/react")
+  >;
   public readonly db: Firestore;
   public readonly user: User;
   public readonly profile: UserProfile;
@@ -51,7 +68,9 @@ export class SubcutaneousSession {
       lastSelectedFamilyId: familyId,
     };
 
-    this.db = testEnv.authenticatedContext(uid, { email }).firestore() as unknown as Firestore;
+    this.db = testEnv
+      .authenticatedContext(uid, { email })
+      .firestore() as unknown as Firestore;
     this.container = createSessionContainer(name);
 
     const authValue: AuthContextValue = {
@@ -125,7 +144,10 @@ export class SubcutaneousDriver implements WishlistDriver {
     return memberName.toLowerCase().replace(/[^a-z0-9]/g, "-");
   }
 
-  async createFamily(familyName: string, adminMemberName: string): Promise<string> {
+  async createFamily(
+    familyName: string,
+    adminMemberName: string,
+  ): Promise<string> {
     const familyId = `fam-${familyName.toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
     const adminUid = this.getMemberUid(adminMemberName);
     const now = new Date().toISOString();
@@ -197,7 +219,10 @@ export class SubcutaneousDriver implements WishlistDriver {
     });
   }
 
-  async sessionFor(memberName: string, familyName: string): Promise<MemberSessionDriver> {
+  async sessionFor(
+    memberName: string,
+    familyName: string,
+  ): Promise<MemberSessionDriver> {
     const familyId = this.getFamilyId(familyName);
     const memberUid = this.getMemberUid(memberName);
 
@@ -210,8 +235,6 @@ export class SubcutaneousDriver implements WishlistDriver {
     const currentSession = session;
     const userDb = currentSession.db;
     const currentUser = currentSession.user;
-
-    const driverSelf = this;
 
     return {
       memberName,
@@ -230,7 +253,10 @@ export class SubcutaneousDriver implements WishlistDriver {
         return created.id;
       },
 
-      editWish: async (wishId: string, updates: Partial<WishData>): Promise<void> => {
+      editWish: async (
+        wishId: string,
+        updates: Partial<WishData>,
+      ): Promise<void> => {
         await updateWish(
           wishId,
           {
@@ -247,19 +273,34 @@ export class SubcutaneousDriver implements WishlistDriver {
 
       claimWish: async (wishId: string): Promise<void> => {
         // Resolve target recipient
-        const wishes = await getActiveWishesForRecipient(memberUid, familyId, userDb);
+        const wishes = await getActiveWishesForRecipient(
+          memberUid,
+          familyId,
+          userDb,
+        );
         const myWish = wishes.find((w) => w.id === wishId);
         if (myWish) {
           // Self claim attempt
-          await claimItem("wish", wishId, memberUid, currentUser, familyId, userDb);
+          await claimItem(
+            "wish",
+            wishId,
+            memberUid,
+            currentUser,
+            familyId,
+            userDb,
+          );
           return;
         }
 
         // Search across other members
         let targetRecipientUid = "";
-        for (const [name, uid] of driverSelf.memberUids.entries()) {
+        for (const uid of this.memberUids.values()) {
           if (uid !== memberUid) {
-            const memberWishes = await getActiveWishesForRecipient(uid, familyId, userDb);
+            const memberWishes = await getActiveWishesForRecipient(
+              uid,
+              familyId,
+              userDb,
+            );
             if (memberWishes.some((w) => w.id === wishId)) {
               targetRecipientUid = uid;
               break;
@@ -281,8 +322,11 @@ export class SubcutaneousDriver implements WishlistDriver {
         await unclaimItem(`wish_${wishId}`, currentUser, userDb);
       },
 
-      addGiftIdeaFor: async (recipientName: string, idea: GiftIdeaData): Promise<string> => {
-        const recipientUid = driverSelf.getMemberUid(recipientName);
+      addGiftIdeaFor: async (
+        recipientName: string,
+        idea: GiftIdeaData,
+      ): Promise<string> => {
+        const recipientUid = this.getMemberUid(recipientName);
         const created = await createGiftIdea(
           {
             recipientId: recipientUid,
@@ -298,8 +342,13 @@ export class SubcutaneousDriver implements WishlistDriver {
 
       claimGiftIdea: async (giftIdeaId: string): Promise<void> => {
         let targetRecipientUid = "";
-        for (const uid of driverSelf.memberUids.values()) {
-          const ideas = await getGiftIdeasForRecipient(uid, familyId, currentUser.uid, userDb);
+        for (const uid of this.memberUids.values()) {
+          const ideas = await getGiftIdeasForRecipient(
+            uid,
+            familyId,
+            currentUser.uid,
+            userDb,
+          );
           if (ideas.some((i) => i.id === giftIdeaId)) {
             targetRecipientUid = uid;
             break;
@@ -316,23 +365,31 @@ export class SubcutaneousDriver implements WishlistDriver {
       },
 
       getWishesFor: async (recipientName: string): Promise<WishView[]> => {
-        const recipientUid = driverSelf.getMemberUid(recipientName);
-        const wishes = await getActiveWishesForRecipient(recipientUid, familyId, userDb);
+        const recipientUid = this.getMemberUid(recipientName);
+        const wishes = await getActiveWishesForRecipient(
+          recipientUid,
+          familyId,
+          userDb,
+        );
 
         // Surprise privacy: If viewing self, claims are never exposed!
         const isRecipient = memberUid === recipientUid;
         let claimsMap: Record<string, { claimantId: string }> = {};
 
         if (!isRecipient) {
-          claimsMap = await getClaimsForFamily(familyId, currentUser.uid, userDb);
+          claimsMap = await getClaimsForFamily(
+            familyId,
+            currentUser.uid,
+            userDb,
+          );
         }
 
         return wishes.map((w) => {
           const claim = claimsMap[`wish_${w.id}`];
           const claimantName = claim
-            ? Array.from(driverSelf.memberUids.entries()).find(
+            ? (Array.from(this.memberUids.entries()).find(
                 ([, uid]) => uid === claim.claimantId,
-              )?.[0] ?? claim.claimantId
+              )?.[0] ?? claim.claimantId)
             : undefined;
 
           return {
@@ -345,8 +402,10 @@ export class SubcutaneousDriver implements WishlistDriver {
         });
       },
 
-      getGiftIdeasFor: async (recipientName: string): Promise<GiftIdeaView[]> => {
-        const recipientUid = driverSelf.getMemberUid(recipientName);
+      getGiftIdeasFor: async (
+        recipientName: string,
+      ): Promise<GiftIdeaView[]> => {
+        const recipientUid = this.getMemberUid(recipientName);
         const isRecipient = memberUid === recipientUid;
 
         // If recipient, getGiftIdeasForRecipient returns [] under Surprise Privacy
@@ -360,14 +419,18 @@ export class SubcutaneousDriver implements WishlistDriver {
           currentUser.uid,
           userDb,
         );
-        const claimsMap = await getClaimsForFamily(familyId, currentUser.uid, userDb);
+        const claimsMap = await getClaimsForFamily(
+          familyId,
+          currentUser.uid,
+          userDb,
+        );
 
         return ideas.map((idea) => {
           const claim = claimsMap[`giftIdea_${idea.id}`];
           const claimantName = claim
-            ? Array.from(driverSelf.memberUids.entries()).find(
+            ? (Array.from(this.memberUids.entries()).find(
                 ([, uid]) => uid === claim.claimantId,
-              )?.[0] ?? claim.claimantId
+              )?.[0] ?? claim.claimantId)
             : undefined;
 
           return {
@@ -382,4 +445,3 @@ export class SubcutaneousDriver implements WishlistDriver {
     };
   }
 }
-

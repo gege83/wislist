@@ -10,8 +10,6 @@ import { expect } from "vitest";
 import type {
   WishlistDriver,
   MemberSessionDriver,
-  WishData,
-  GiftIdeaData,
   WishView,
   GiftIdeaView,
 } from "./WishlistDriver";
@@ -39,8 +37,12 @@ export class WishAssertionDsl {
   ) {}
 
   private async fetchView(): Promise<WishView> {
-    const wishes = await this.member.session.getWishesFor(this.wish.recipientName);
-    const found = wishes.find((w) => w.id === this.wish.id || w.title === this.wish.title);
+    const wishes = await this.member.session.getWishesFor(
+      this.wish.recipientName,
+    );
+    const found = wishes.find(
+      (w) => w.id === this.wish.id || w.title === this.wish.title,
+    );
     if (!found) {
       throw new Error(
         `Family member "${this.member.name}" cannot find wish "${this.wish.title}" for recipient "${this.wish.recipientName}"`,
@@ -51,12 +53,18 @@ export class WishAssertionDsl {
 
   async toBeClaimed(): Promise<void> {
     const view = await this.fetchView();
-    expect(view.isClaimed, `Expected wish "${this.wish.title}" to be claimed, but it was not.`).toBe(true);
+    expect(
+      view.isClaimed,
+      `Expected wish "${this.wish.title}" to be claimed, but it was not.`,
+    ).toBe(true);
   }
 
   async toBeClaimedBy(expectedMemberName: string): Promise<void> {
     const view = await this.fetchView();
-    expect(view.isClaimed, `Expected wish "${this.wish.title}" to be claimed`).toBe(true);
+    expect(
+      view.isClaimed,
+      `Expected wish "${this.wish.title}" to be claimed`,
+    ).toBe(true);
     expect(
       view.claimedByName,
       `Expected wish "${this.wish.title}" to be claimed by "${expectedMemberName}", but was "${view.claimedByName}"`,
@@ -79,7 +87,11 @@ export class MemberDsl {
     public readonly session: MemberSessionDriver,
   ) {}
 
-  async addsWish(data: { title: string; description?: string; url?: string }): Promise<WishReference> {
+  async addsWish(data: {
+    title: string;
+    description?: string;
+    url?: string;
+  }): Promise<WishReference> {
     const id = await this.session.addWish(data);
     return new WishReference(id, data.title, this.name);
   }
@@ -96,7 +108,8 @@ export class MemberDsl {
     recipient: MemberDsl | string,
     idea: { title: string; description?: string; url?: string },
   ): Promise<GiftIdeaReference> {
-    const recipientName = typeof recipient === "string" ? recipient : recipient.name;
+    const recipientName =
+      typeof recipient === "string" ? recipient : recipient.name;
     const id = await this.session.addGiftIdeaFor(recipientName, idea);
     return new GiftIdeaReference(id, idea.title, recipientName);
   }
@@ -109,9 +122,13 @@ export class MemberDsl {
     return new WishAssertionDsl(this, wish);
   }
 
-  async expectsToSeeGiftIdea(giftIdea: GiftIdeaReference): Promise<GiftIdeaView> {
+  async expectsToSeeGiftIdea(
+    giftIdea: GiftIdeaReference,
+  ): Promise<GiftIdeaView> {
     const ideas = await this.session.getGiftIdeasFor(giftIdea.recipientName);
-    const found = ideas.find((i) => i.id === giftIdea.id || i.title === giftIdea.title);
+    const found = ideas.find(
+      (i) => i.id === giftIdea.id || i.title === giftIdea.title,
+    );
     expect(
       found,
       `Expected member "${this.name}" to see gift idea "${giftIdea.title}", but it was not found.`,
@@ -121,7 +138,9 @@ export class MemberDsl {
 
   async expectsToNotSeeGiftIdea(giftIdea: GiftIdeaReference): Promise<void> {
     const ideas = await this.session.getGiftIdeasFor(giftIdea.recipientName);
-    const found = ideas.find((i) => i.id === giftIdea.id || i.title === giftIdea.title);
+    const found = ideas.find(
+      (i) => i.id === giftIdea.id || i.title === giftIdea.title,
+    );
     expect(
       found,
       `Surprise Privacy violation: recipient "${this.name}" can see hidden gift idea "${giftIdea.title}"!`,
@@ -135,7 +154,10 @@ export class FamilyDsl {
     private readonly driver: WishlistDriver,
   ) {}
 
-  async withMember(name: string, kind: "adult" | "child" = "adult"): Promise<MemberDsl> {
+  async withMember(
+    name: string,
+    kind: "adult" | "child" = "adult",
+  ): Promise<MemberDsl> {
     await this.driver.addFamilyMember(this.name, name, kind);
     return this.member(name);
   }
@@ -149,9 +171,11 @@ export class FamilyDsl {
 export class WishlistAppDsl {
   constructor(private readonly driver: WishlistDriver) {}
 
-  async createFamily(name: string, adminMemberName: string = "Admin"): Promise<FamilyDsl> {
+  async createFamily(
+    name: string,
+    adminMemberName: string = "Admin",
+  ): Promise<FamilyDsl> {
     await this.driver.createFamily(name, adminMemberName);
     return new FamilyDsl(name, this.driver);
   }
 }
-

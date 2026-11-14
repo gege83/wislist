@@ -3,7 +3,7 @@ import { User } from "firebase/auth";
 import { X } from "lucide-react";
 import { createWish, updateWish } from "../lib/wishes";
 import { Wish } from "../types";
-import { useFirestore } from "../context/FirebaseContext";
+import { useFirestore } from "../context/firebaseContext";
 
 interface WishModalProps {
   currentUser: User;
@@ -27,7 +27,9 @@ export function WishModal({
   const db = useFirestore();
   const isEditing = !!existingWish;
   const [title, setTitle] = useState(existingWish?.title ?? "");
-  const [description, setDescription] = useState(existingWish?.description ?? "");
+  const [description, setDescription] = useState(
+    existingWish?.description ?? "",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,15 +90,21 @@ export function WishModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={isEditing ? "Edit wish" : isSelf ? "Add a wish" : `Add wish for ${recipientName}`}
+        aria-label={
+          isEditing
+            ? "Edit wish"
+            : isSelf
+              ? "Add a wish"
+              : `Add wish for ${recipientName}`
+        }
       >
         <div className="modal-header">
           <h2>
             {isEditing
               ? "Edit wish"
               : isSelf
-              ? "Add a wish"
-              : `Add wish for ${recipientName}`}
+                ? "Add a wish"
+                : `Add wish for ${recipientName}`}
           </h2>
           <button
             type="button"
@@ -129,7 +137,9 @@ export function WishModal({
           </div>
 
           <div className="form-group">
-            <label htmlFor="wish-desc-input">Description or details (optional)</label>
+            <label htmlFor="wish-desc-input">
+              Description or details (optional)
+            </label>
             <textarea
               id="wish-desc-input"
               value={description}

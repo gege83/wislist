@@ -17,6 +17,7 @@ An operational Dave Farley 4-layer acceptance testing framework located in `test
 
 - [Research Multi-User Subcutaneous App Context Isolation](issues/02-multi-user-subcutaneous-isolation.md): Isolated concurrent React sessions use detached DOM containers with `within(container)`, direct `AuthContext` injection, scoped `authenticatedContext(uid)` Firestore instances, and a `FirebaseContext` DI seam.
 - [Prototype Domain DSL and Driver Interface](issues/01-domain-dsl-and-driver-prototype.md): Proven 4-layer architecture in `tests/acceptance/prototype/` with type-safe `WishlistAppDsl`/`MemberDsl` and decoupled `WishlistDriver` interface.
+- [Executable Specification Matrix for Surprise Privacy](issues/03-surprise-privacy-specification-matrix.md): Established the 6-scenario canonical matrix covering wish/idea claiming, unclaiming, secrecy, self-claim prohibition, and concurrent claim race resolution.
 
 ## Not yet specified
 
@@ -28,4 +29,3 @@ An operational Dave Farley 4-layer acceptance testing framework located in `test
 
 - **Replacing Firestore Rules unit tests**: Lower-level rules testing (`tests/rules/`) remains distinct from user acceptance testing.
 - **Live Cloud Firebase execution**: Acceptance tests run exclusively against local Firebase emulators, not production cloud Firebase projects.
-
